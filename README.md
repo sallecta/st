@@ -41,7 +41,7 @@ not make any impact. Otherwise you may need to set it to none.
     ./build.sh clean
 
 
-## Running x11terminal
+## Running xelt
 
     ./xelt
 
