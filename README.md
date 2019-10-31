@@ -1,7 +1,6 @@
 # x11terminal
 
-This is a fork of [suckless.org](http://suckless.org) the coolest terminal client **st**.
-Light, stable, simple and fast. **tmux** brings in all other needed features.
+This is a fork of [Gediminas Morkevicius](https://github.com/l3pp4rd/st) terminal client.
 
 
 ## Requirements
