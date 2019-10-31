@@ -1,4 +1,4 @@
-# x11terminal
+# xelt
 
 This is a fork of [Gediminas Morkevicius](https://github.com/l3pp4rd/st) terminal client.
 
@@ -47,7 +47,7 @@ not make any impact. Otherwise you may need to set it to none.
 
 Try it with tmux:
 
-    ./x11terminal -e tmux
+    ./xelt -e tmux
 
 
 ## Credits
