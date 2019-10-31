@@ -1,6 +1,6 @@
-# st - simple terminal
+# x11terminal
 
-This is a clone of [suckless.org](http://suckless.org) the coolest terminal client **st**.
+This is a fork of [suckless.org](http://suckless.org) the coolest terminal client **st**.
 Light, stable, simple and fast. **tmux** brings in all other needed features.
 
 ## Customizations
@@ -55,20 +55,20 @@ changes](https://bbs.archlinux.org/viewtopic.php?id=206805), recently it
 got bold font support and if you had hinstyle set to **none** it should
 not make any impact. Otherwise you may need to set it to none.
 
-## Running st
+## Running x11terminal
 
-If you did not install st with make clean install, you must compile
-the st terminfo entry with the following command:
 
-    tic -s st.info
+    ./x11terminal
 
 Run it with tmux:
 
-    st -e tmux
+    ./x11terminal -e tmux
 
-See the man page for additional details.
 
 ## Credits
 
-Based on Aurélien APTEL <aurelien dot aptel at gmail dot com> bt source code.
+Based on source code of:
+- Aurélien APTEL <aurelien dot aptel at gmail dot com> bt 
+- http://st.suckless.org/
+- Gediminas Morkevicius <https://github.com/l3pp4rd/st>
 
