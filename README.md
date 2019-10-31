@@ -1,6 +1,6 @@
 # st - simple terminal
 
-This is a clone of [suckless.org](http://suckless.org) the coolest terminal client **st**.
+This is fork of [st - simple terminal](https://github.com/l3pp4rd/st) the coolest terminal client **st**.
 Light, stable, simple and fast. **tmux** brings in all other needed features.
 
 ## Customizations
