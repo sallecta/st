@@ -1,4 +1,4 @@
-# st - simple terminal
+# x11terminal
 
 This is fork of [st - simple terminal](https://github.com/l3pp4rd/st) the coolest terminal client **st**.
 Light, stable, simple and fast. **tmux** brings in all other needed features.
