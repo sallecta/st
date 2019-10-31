@@ -1,6 +1,6 @@
-# x11terminal
+# st - simple terminal
 
-This is fork of [st - simple terminal](https://github.com/l3pp4rd/st) the coolest terminal client **st**.
+This is a clone of [suckless.org](http://suckless.org) the coolest terminal client **st**.
 Light, stable, simple and fast. **tmux** brings in all other needed features.
 
 ## Customizations
@@ -8,10 +8,6 @@ Light, stable, simple and fast. **tmux** brings in all other needed features.
 - **Inconsolata** font usage.
 - **solarized** dark color scheme.
 - **transparency** support added.
-
-## Screen
-
-![Screenshot](https://raw.github.com/l3pp4rd/st/master/screen.png)
 
 ## Requirements
 
@@ -21,16 +17,24 @@ In order to build st you need:
 - xft lib headers.
 - Inconsolata.ttf fonts, unless you change it in config.h
 
-## Installation
+## Build instructions
 
-Edit config.mk to match your local setup (**st** is installed into the
-**/usr/local** namespace by default).
+### Create application executable:
 
-**NOTE:** to have unicode character support, install **freetype2** library
-headers.
+    ./build.sh make
 
-**NOTE:** **ranger** file manager may not preview images well, when having
-transparency enabled.
+### Build app and run
+
+    ./build.sh make run
+
+### Build app and run detached from terminal
+
+    ./build.sh make rund
+
+### Clean build directory
+
+    ./build.sh clean
+
 
 ## Transparency
 

@@ -3,7 +3,7 @@
 
 include config.mk
 
-SRC = st.c
+SRC = x11terminal.c
 OBJ = ${SRC:.c=.o}
 
 all: options st
