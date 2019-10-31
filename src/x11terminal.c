@@ -31,7 +31,6 @@
 #include <fontconfig/fontconfig.h>
 #include <wchar.h>
 
-#include "arg.h"
 
 char *argv0;
 
@@ -363,7 +362,7 @@ typedef struct {
 	GC gc;
 } DC;
 
-static void die(const char *, ...);
+static void printAndExit(const char *, ...);
 static void draw(void);
 static void redraw(void);
 static void drawregion(int, int, int, int);
@@ -488,7 +487,6 @@ static void *xmalloc(size_t);
 static void *xrealloc(void *, size_t);
 static char *xstrdup(char *);
 
-static void usage(void);
 
 static void (*handler[LASTEvent])(XEvent *) = {
 	[KeyPress] = kpress,
@@ -586,7 +584,7 @@ xmalloc(size_t len)
 	void *p = malloc(len);
 
 	if (!p)
-		die("Out of memory\n");
+		printAndExit("Out of memory\n");
 
 	return p;
 }
@@ -595,7 +593,7 @@ void *
 xrealloc(void *p, size_t len)
 {
 	if ((p = realloc(p, len)) == NULL)
-		die("Out of memory\n");
+		printAndExit("Out of memory\n");
 
 	return p;
 }
@@ -604,7 +602,7 @@ char *
 xstrdup(char *s)
 {
 	if ((s = strdup(s)) == NULL)
-		die("Out of memory\n");
+		printAndExit("Out of memory\n");
 
 	return s;
 }
@@ -1314,7 +1312,7 @@ bmotion(XEvent *e)
 }
 
 void
-die(const char *errstr, ...)
+printAndExit(const char *errstr, ...)
 {
 	va_list ap;
 
@@ -1334,9 +1332,9 @@ execsh(void)
 	errno = 0;
 	if ((pw = getpwuid(getuid())) == NULL) {
 		if (errno)
-			die("getpwuid:%s\n", strerror(errno));
+			printAndExit("getpwuid:%s\n", strerror(errno));
 		else
-			die("who are you?\n");
+			printAndExit("who are you?\n");
 	}
 
 	if ((sh = getenv("SHELL")) == NULL)
@@ -1380,13 +1378,13 @@ sigchld(int a)
 	pid_t p;
 
 	if ((p = waitpid(pid, &stat, WNOHANG)) < 0)
-		die("Waiting for pid %hd failed: %s\n", pid, strerror(errno));
+		printAndExit("Waiting for pid %hd failed: %s\n", pid, strerror(errno));
 
 	if (pid != p)
 		return;
 
 	if (!WIFEXITED(stat) || WEXITSTATUS(stat))
-		die("child finished with error '%d'\n", stat);
+		printAndExit("child finished with error '%d'\n", stat);
 	exit(0);
 }
 
@@ -1398,13 +1396,13 @@ stty(void)
 	size_t n, siz;
 
 	if ((n = strlen(stty_args)) > sizeof(cmd)-1)
-		die("incorrect stty parameters\n");
+		printAndExit("incorrect stty parameters\n");
 	memcpy(cmd, stty_args, n);
 	q = cmd + n;
 	siz = sizeof(cmd) - n;
 	for (p = opt_cmd; p && (s = *p); ++p) {
 		if ((n = strlen(s)) > siz-1)
-			die("stty parameter length too long\n");
+			printAndExit("stty parameter length too long\n");
 		*q++ = ' ';
 		memcpy(q, s, n);
 		q += n;
@@ -1433,7 +1431,7 @@ ttynew(void)
 
 	if (opt_line) {
 		if ((cmdfd = open(opt_line, O_RDWR)) < 0)
-			die("open line failed: %s\n", strerror(errno));
+			printAndExit("open line failed: %s\n", strerror(errno));
 		dup2(cmdfd, 0);
 		stty();
 		return;
@@ -1441,11 +1439,11 @@ ttynew(void)
 
 	/* seems to work fine on linux, openbsd and freebsd */
 	if (openpty(&m, &s, NULL, NULL, &w) < 0)
-		die("openpty failed: %s\n", strerror(errno));
+		printAndExit("openpty failed: %s\n", strerror(errno));
 
 	switch (pid = fork()) {
 	case -1:
-		die("fork failed\n");
+		printAndExit("fork failed\n");
 		break;
 	case 0:
 		close(iofd);
@@ -1454,7 +1452,7 @@ ttynew(void)
 		dup2(s, 1);
 		dup2(s, 2);
 		if (ioctl(s, TIOCSCTTY, NULL) < 0)
-			die("ioctl TIOCSCTTY failed: %s\n", strerror(errno));
+			printAndExit("ioctl TIOCSCTTY failed: %s\n", strerror(errno));
 		close(s);
 		close(m);
 		execsh();
@@ -1479,7 +1477,7 @@ ttyread(void)
 
 	/* append read bytes to unprocessed bytes */
 	if ((ret = read(cmdfd, buf+buflen, LEN(buf)-buflen)) < 0)
-		die("Couldn't read from shell: %s\n", strerror(errno));
+		printAndExit("Couldn't read from shell: %s\n", strerror(errno));
 
 	/* process every complete utf8 char */
 	buflen += ret;
@@ -1519,7 +1517,7 @@ ttywrite(const char *s, size_t n)
 		if (pselect(cmdfd+1, &rfd, &wfd, NULL, NULL, NULL) < 0) {
 			if (errno == EINTR)
 				continue;
-			die("select failed: %s\n", strerror(errno));
+			printAndExit("select failed: %s\n", strerror(errno));
 		}
 		if (FD_ISSET(cmdfd, &wfd)) {
 			/*
@@ -1550,7 +1548,7 @@ ttywrite(const char *s, size_t n)
 	return;
 
 write_error:
-	die("write error on tty: %s\n", strerror(errno));
+	printAndExit("write error on tty: %s\n", strerror(errno));
 }
 
 void
@@ -2254,7 +2252,7 @@ csihandle(void)
 	unknown:
 		fprintf(stderr, "erresc: unknown csi ");
 		csidump();
-		/* die(""); */
+		/* printAndExit(""); */
 		break;
 	case '@': /* ICH -- Insert <n> blank char */
 		DEFAULT(csiescseq.arg[0], 1);
@@ -3189,9 +3187,9 @@ xloadcols(void)
 	for (i = 0; i < LEN(dc.col); i++)
 		if (!xloadcolor(i, NULL, &dc.col[i])) {
 			if (colorname[i])
-				die("Could not allocate color '%s'\n", colorname[i]);
+				printAndExit("Could not allocate color '%s'\n", colorname[i]);
 			else
-				die("Could not allocate color %d\n", i);
+				printAndExit("Could not allocate color %d\n", i);
 		}
 
     /* set alpha value of bg color */
@@ -3330,7 +3328,7 @@ xloadfonts(char *fontstr, double fontsize)
 	}
 
 	if (!pattern)
-		die("st: can't open font %s\n", fontstr);
+		printAndExit("st: can't open font %s\n", fontstr);
 
 	if (fontsize > 1) {
 		FcPatternDel(pattern, FC_PIXEL_SIZE);
@@ -3356,7 +3354,7 @@ xloadfonts(char *fontstr, double fontsize)
 	}
 
 	if (xloadfont(&dc.font, pattern))
-		die("st: can't open font %s\n", fontstr);
+		printAndExit("st: can't open font %s\n", fontstr);
 
 	if (usedfontsize < 0) {
 		FcPatternGetDouble(dc.font.match->pattern,
@@ -3373,17 +3371,17 @@ xloadfonts(char *fontstr, double fontsize)
 	FcPatternDel(pattern, FC_SLANT);
 	FcPatternAddInteger(pattern, FC_SLANT, FC_SLANT_ITALIC);
 	if (xloadfont(&dc.ifont, pattern))
-		die("st: can't open font %s\n", fontstr);
+		printAndExit("st: can't open font %s\n", fontstr);
 
 	FcPatternDel(pattern, FC_WEIGHT);
 	FcPatternAddInteger(pattern, FC_WEIGHT, FC_WEIGHT_BOLD);
 	if (xloadfont(&dc.ibfont, pattern))
-		die("st: can't open font %s\n", fontstr);
+		printAndExit("st: can't open font %s\n", fontstr);
 
 	FcPatternDel(pattern, FC_SLANT);
 	FcPatternAddInteger(pattern, FC_SLANT, FC_SLANT_ROMAN);
 	if (xloadfont(&dc.bfont, pattern))
-		die("st: can't open font %s\n", fontstr);
+		printAndExit("st: can't open font %s\n", fontstr);
 
 	FcPatternDestroy(pattern);
 }
@@ -3451,7 +3449,7 @@ xinit(void)
 	XColor xmousefg, xmousebg;
 
 	if (!(xw.dpy = XOpenDisplay(NULL)))
-		die("Can't open display\n");
+		printAndExit("Can't open display\n");
 	xw.scr = XDefaultScreen(xw.dpy);
 	xw.depth = (USE_ARGB)? 32: XDefaultDepth(xw.dpy, xw.scr);
 	if (! USE_ARGB)
@@ -3488,7 +3486,7 @@ xinit(void)
 
 	/* font */
 	if (!FcInit())
-		die("Could not init fontconfig.\n");
+		printAndExit("Could not init fontconfig.\n");
 
 	usedfont = (opt_font == NULL)? font : opt_font;
 	xloadfonts(usedfont, 0);
@@ -3544,7 +3542,7 @@ xinit(void)
 			XSetLocaleModifiers("@im=");
 			if ((xw.xim = XOpenIM(xw.dpy,
 					NULL, NULL, NULL)) == NULL) {
-				die("XOpenIM failed. Could not open input"
+				printAndExit("XOpenIM failed. Could not open input"
 					" device.\n");
 			}
 		}
@@ -3553,7 +3551,7 @@ xinit(void)
 					   | XIMStatusNothing, XNClientWindow, xw.win,
 					   XNFocusWindow, xw.win, NULL);
 	if (xw.xic == NULL)
-		die("XCreateIC failed. Could not obtain input method.\n");
+		printAndExit("XCreateIC failed. Could not obtain input method.\n");
 
 	/* white cursor, black outline */
 	cursor = XCreateFontCursor(xw.dpy, mouseshape);
@@ -4332,7 +4330,7 @@ run(void)
 		if (pselect(MAX(xfd, cmdfd)+1, &rfd, NULL, NULL, tv, NULL) < 0) {
 			if (errno == EINTR)
 				continue;
-			die("select failed: %s\n", strerror(errno));
+			printAndExit("select failed: %s\n", strerror(errno));
 		}
 		if (FD_ISSET(cmdfd, &rfd)) {
 			ttyread();
@@ -4400,18 +4398,6 @@ run(void)
 	}
 }
 
-void
-usage(void)
-{
-	die("usage: %s [-aiv] [-c class] [-f font] [-g geometry]"
-	    " [-n name] [-o file]\n"
-	    "          [-T title] [-t title] [-w windowid]"
-	    " [[-e] command [args ...]]\n"
-	    "       %s [-aiv] [-c class] [-f font] [-g geometry]"
-	    " [-n name] [-o file]\n"
-	    "          [-T title] [-t title] [-w windowid] -l line"
-	    " [stty_args ...]\n", argv0, argv0);
-}
 
 int
 main(int argc, char *argv[])
@@ -4422,57 +4408,7 @@ main(int argc, char *argv[])
 	xw.isfixed = False;
 	xw.cursor = cursorshape;
 
-	ARGBEGIN {
-	case 'a':
-		allowaltscreen = 0;
-		break;
-	case 'c':
-		opt_class = EARGF(usage());
-		break;
-	case 'e':
-		if (argc > 0)
-			--argc, ++argv;
-		goto run;
-	case 'f':
-		opt_font = EARGF(usage());
-		break;
-	case 'g':
-		xw.gm = XParseGeometry(EARGF(usage()),
-				&xw.l, &xw.t, &cols, &rows);
-		break;
-	case 'i':
-		xw.isfixed = 1;
-		break;
-	case 'o':
-		opt_io = EARGF(usage());
-		break;
-	case 'l':
-		opt_line = EARGF(usage());
-		break;
-	case 'n':
-		opt_name = EARGF(usage());
-		break;
-	case 't':
-	case 'T':
-		opt_title = EARGF(usage());
-		break;
-	case 'w':
-		opt_embed = EARGF(usage());
-		break;
-	case 'v':
-		die("%s " VERSION " (c) 2010-2016 st engineers\n", argv0);
-		break;
-	default:
-		usage();
-	} ARGEND;
-
-run:
-	if (argc > 0) {
-		/* eat all remaining arguments */
-		opt_cmd = argv;
-		if (!opt_title && !opt_line)
-			opt_title = basename(xstrdup(argv[0]));
-	}
+	opt_title = basename(xstrdup(argv[0]));
 	setlocale(LC_CTYPE, "");
 	XSetLocaleModifiers("");
 	tnew(MAX(cols, 1), MAX(rows, 1));
