@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #configs
-appname="x11terminal"
+appname="xelt"
 dirbuild="$PWD/buildout"
 dirbuildexe="$dirbuild/exe"
 dirsrc="$PWD/src"
@@ -16,17 +16,18 @@ if [ "$1" = "--make" ] || [ "$1" = "make" ]; then
     fn_dirEnsureClear "$dirbuildexe"
 	printf "\n"
 	fn_echobold "Creating obj file from $appname.c"
-	cmd="cc -c -g -std=c99 -pedantic -Wall -Wvariadic-macros -Os -I. -I/usr/include -I/usr/include/X11 -I/usr/include/freetype2 -I/usr/include/libpng16 -I/usr/include/freetype2 -I/usr/include/libpng16 -I/usr/include/freetype2 -I/usr/include/libpng16 -DVERSION=\"0.6\" -D_XOPEN_SOURCE=600 $dirsrc/$appname.c -o $dirbuildexe/$appname.o"
+	cmd="cc -c -g -std=c99 -pedantic -Wall -Wvariadic-macros -Werror -Os -I. -I/usr/include -I/usr/include/X11 -I/usr/include/freetype2 -I/usr/include/libpng16 -I/usr/include/freetype2 -I/usr/include/libpng16 -I/usr/include/freetype2 -I/usr/include/libpng16 -DVERSION=\"0.6\" -D_XOPEN_SOURCE=600 $dirsrc/$appname.c -o $dirbuildexe/$appname.o"
 	echo $cmd
 	$cmd
 	fn_stoponerror "$?" $LINENO
 	
 	printf "\n"
 	fn_echobold "Compiling executable"
-	cmd="cc -o $dirbuildexe/$appname $dirbuildexe/$appname.o -g -L/usr/lib -lc -L/usr/lib/X11 -lm -lrt -lX11 -lutil -lXft -lXrender -lfontconfig -lfreetype"
+	cmd="cc -Werror -o $dirbuildexe/$appname $dirbuildexe/$appname.o -g -L/usr/lib -lc -L/usr/lib/X11 -lm -lrt -lX11 -lutil -lXft -lXrender -lfontconfig -lfreetype"
 	echo $cmd
 	$cmd
-	fn_stoponerror "$?" $LINENO	
+	fn_stoponerror "$?" $LINENO
+	rm -rf "$dirbuildexe/$appname.o"	
 	printf "\n"
 		
 	if ! [ "$2" = "" ]; then
