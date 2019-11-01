@@ -11,6 +11,7 @@
 #include "xelt_types.h"
 #include "xelt_macroses.h"
 
+char charbuf256[256];
  
  /* function definitions used in config.h */
 static void clipcopy(const xelt_Arg *);

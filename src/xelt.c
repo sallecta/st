@@ -31,7 +31,7 @@
 #include <X11/XKBlib.h>
 #include <fontconfig/fontconfig.h>
 #include <wchar.h>
-
+#include <string.h>
 
 #include "xelt.h"
 
@@ -40,7 +40,7 @@
 #include "config.h"
 /* Drawing Context */
 typedef struct {
-	xelt_Color col[xelt_macro_max(xelt_macro_len(colorname), 256)];
+	xelt_Color col[MAX(LEN(colorname), 256)];
 	xelt_Font font, bfont, ifont, ibfont;
 	GC gc;
 } xelt_DrawingContext;
@@ -635,7 +635,7 @@ selnotify(XEvent *e)
 		return;
 
 	do {
-		if (XGetWindowProperty(xelt_windowmain.display, xelt_windowmain.win, property, ofs,
+		if (XGetWindowProperty(xelt_windowmain.display, xelt_windowmain.id, property, ofs,
 					BUFSIZ/4, False, AnyPropertyType,
 					&type, &format, &nitems, &rem,
 					&data)) {
@@ -651,7 +651,7 @@ selnotify(XEvent *e)
 			 * PropertyNotify events anymore.
 			 */
 			MODBIT(xelt_windowmain.attrs.event_mask, 0, PropertyChangeMask);
-			XChangeWindowAttributes(xelt_windowmain.display, xelt_windowmain.win, CWEventMask,
+			XChangeWindowAttributes(xelt_windowmain.display, xelt_windowmain.id, CWEventMask,
 					&xelt_windowmain.attrs);
 		}
 
@@ -662,13 +662,13 @@ selnotify(XEvent *e)
 			 * chunk of data.
 			 */
 			MODBIT(xelt_windowmain.attrs.event_mask, 1, PropertyChangeMask);
-			XChangeWindowAttributes(xelt_windowmain.display, xelt_windowmain.win, CWEventMask,
+			XChangeWindowAttributes(xelt_windowmain.display, xelt_windowmain.id, CWEventMask,
 					&xelt_windowmain.attrs);
 
 			/*
 			 * Deleting the property is the transfer start signal.
 			 */
-			XDeleteProperty(xelt_windowmain.display, xelt_windowmain.win, (int)property);
+			XDeleteProperty(xelt_windowmain.display, xelt_windowmain.id, (int)property);
 			continue;
 		}
 
@@ -699,14 +699,14 @@ selnotify(XEvent *e)
 	 * Deleting the property again tells the selection owner to send the
 	 * next data chunk in the property.
 	 */
-	XDeleteProperty(xelt_windowmain.display, xelt_windowmain.win, (int)property);
+	XDeleteProperty(xelt_windowmain.display, xelt_windowmain.id, (int)property);
 }
 
 void
 selpaste(const xelt_Arg *dummy)
 {
 	XConvertSelection(xelt_windowmain.display, XA_PRIMARY, sel.xtarget, XA_PRIMARY,
-			xelt_windowmain.win, CurrentTime);
+			xelt_windowmain.id, CurrentTime);
 }
 
 void
@@ -720,7 +720,7 @@ clipcopy(const xelt_Arg *dummy)
 	if (sel.primary != NULL) {
 		sel.clipboard = xstrdup(sel.primary);
 		clipboard = XInternAtom(xelt_windowmain.display, "CLIPBOARD", 0);
-		XSetSelectionOwner(xelt_windowmain.display, clipboard, xelt_windowmain.win, CurrentTime);
+		XSetSelectionOwner(xelt_windowmain.display, clipboard, xelt_windowmain.id, CurrentTime);
 	}
 }
 
@@ -731,7 +731,7 @@ clippaste(const xelt_Arg *dummy)
 
 	clipboard = XInternAtom(xelt_windowmain.display, "CLIPBOARD", 0);
 	XConvertSelection(xelt_windowmain.display, clipboard, sel.xtarget, clipboard,
-			xelt_windowmain.win, CurrentTime);
+			xelt_windowmain.id, CurrentTime);
 }
 
 void
@@ -808,8 +808,8 @@ xsetsel(char *str, Time t)
 	free(sel.primary);
 	sel.primary = str;
 
-	XSetSelectionOwner(xelt_windowmain.display, XA_PRIMARY, xelt_windowmain.win, t);
-	if (XGetSelectionOwner(xelt_windowmain.display, XA_PRIMARY) != xelt_windowmain.win)
+	XSetSelectionOwner(xelt_windowmain.display, XA_PRIMARY, xelt_windowmain.id, t);
+	if (XGetSelectionOwner(xelt_windowmain.display, XA_PRIMARY) != xelt_windowmain.id)
 		selclear(0);
 }
 
@@ -872,9 +872,12 @@ printAndExit(const char *errstr, ...)
 void
 execsh(void)
 {
+	char *me="execsh";
+	xelt_log(me,"started");
+	
 	char **args, *sh, *prog;
 	const struct passwd *pw;
-	char buf[sizeof(long) * 8 + 1];
+	char bufWinId[sizeof(long) * 8 + 1];
 
 	errno = 0;
 	if ((pw = getpwuid(getuid())) == NULL) {
@@ -884,9 +887,13 @@ execsh(void)
 			printAndExit("who are you?\n");
 	}
 
-	if ((sh = getenv("SHELL")) == NULL)
+	if ((sh = getenv("SHELL")) == NULL) {
 		sh = (pw->pw_shell[0]) ? pw->pw_shell : shell;
-
+		xelt_log(me,"getenv(\"SHELL\") is NULL");
+	}
+	
+	snprintf(charbuf256, 256, "%s%s", "shell is: ", sh);
+	xelt_log(me,charbuf256);
 	if (opt_cmd)
 		prog = opt_cmd[0];
 	else if (utmp)
@@ -894,8 +901,6 @@ execsh(void)
 	else
 		prog = sh;
 	args = (opt_cmd) ? opt_cmd : (char *[]) {prog, NULL};
-
-	snprintf(buf, sizeof(buf), "%lu", xelt_windowmain.win);
 
 	unsetenv("COLUMNS");
 	unsetenv("LINES");
@@ -905,7 +910,8 @@ execsh(void)
 	setenv("SHELL", sh, 1);
 	setenv("HOME", pw->pw_dir, 1);
 	setenv("TERM", termname, 1);
-	setenv("WINDOWID", buf, 1);
+	snprintf(bufWinId, sizeof(bufWinId), "%lu", xelt_windowmain.id);
+	setenv("WINDOWID", bufWinId, 1);
 
 	signal(SIGCHLD, SIG_DFL);
 	signal(SIGHUP, SIG_DFL);
@@ -963,6 +969,8 @@ stty(void)
 void
 ttynew(void)
 {
+	char *me="ttynew";
+	xelt_log(me,"started");
 	int m, s;
 	struct winsize w = {terminal.row, terminal.col, 0, 0};
 
@@ -987,17 +995,19 @@ ttynew(void)
 	/* seems to work fine on linux, openbsd and freebsd */
 	if (openpty(&m, &s, NULL, NULL, &w) < 0)
 		printAndExit("openpty failed: %s\n", strerror(errno));
-
 	switch (pid = fork()) {
 	case -1:
 		printAndExit("fork failed\n");
 		break;
 	case 0:
+	    xelt_log(me,"fork success");
 		close(iofd);
 		setsid(); /* create a new process group */
-		dup2(s, 0);
-		dup2(s, 1);
-		dup2(s, 2);
+        /* dup() will create the copy of file_desc, then both can be used interchangeably.  */
+		dup2(s, 0); // copy stderr to s 
+		dup2(s, 1); // copy stdout to s 
+		xelt_log(me,"stdout copied to s ");
+		dup2(s, 2);// copy stdin to s 
 		if (ioctl(s, TIOCSCTTY, NULL) < 0)
 			printAndExit("ioctl TIOCSCTTY failed: %s\n", strerror(errno));
 		close(s);
@@ -2275,7 +2285,7 @@ tcontrolcode(xelt_uchar ascii)
 			if (!(xelt_windowmain.state & XELT_WIN_FOCUSED))
 				xseturgency(1);
 			if (bellvolume)
-				XkbBell(xelt_windowmain.display, xelt_windowmain.win, bellvolume, (Atom)NULL);
+				XkbBell(xelt_windowmain.display, xelt_windowmain.id, bellvolume, (Atom)NULL);
 		}
 		break;
 	case '\033': /* ESC */
@@ -2646,7 +2656,7 @@ xresize(int col, int row)
 	xelt_windowmain.ttyheight = MAX(1, row * xelt_windowmain.charheight);
 
 	XFreePixmap(xelt_windowmain.display, xelt_windowmain.drawbuf);
-	xelt_windowmain.drawbuf = XCreatePixmap(xelt_windowmain.display, xelt_windowmain.win, xelt_windowmain.width, xelt_windowmain.height, xelt_windowmain.depth);
+	xelt_windowmain.drawbuf = XCreatePixmap(xelt_windowmain.display, xelt_windowmain.id, xelt_windowmain.width, xelt_windowmain.height, xelt_windowmain.depth);
 	XftDrawChange(xelt_windowmain.draw, xelt_windowmain.drawbuf);
 	xclear(0, 0, xelt_windowmain.width, xelt_windowmain.height);
 }
@@ -2769,7 +2779,7 @@ xhints(void)
 		sizeh->win_gravity = xgeommasktogravity(xelt_windowmain.gmask);
 	}
 
-	XSetWMProperties(xelt_windowmain.display, xelt_windowmain.win, NULL, NULL, NULL, 0, sizeh, &wm,
+	XSetWMProperties(xelt_windowmain.display, xelt_windowmain.id, NULL, NULL, NULL, 0, sizeh, &wm,
 			&class);
 	XFree(sizeh);
 }
@@ -3026,14 +3036,14 @@ xinit(void)
 
 	if (!(opt_embed && (parent = strtol(opt_embed, NULL, 0))))
 		parent = XRootWindow(xelt_windowmain.display, xelt_windowmain.scr);
-	xelt_windowmain.win = XCreateWindow(xelt_windowmain.display, parent, xelt_windowmain.left, xelt_windowmain.top,
+	xelt_windowmain.id = XCreateWindow(xelt_windowmain.display, parent, xelt_windowmain.left, xelt_windowmain.top,
 			xelt_windowmain.width, xelt_windowmain.height, 0, xelt_windowmain.depth, InputOutput,
 			xelt_windowmain.vis, CWBackPixel | CWBorderPixel | CWBitGravity
 			| CWEventMask | CWColormap, &xelt_windowmain.attrs);
 
 	memset(&gcvalues, 0, sizeof(gcvalues));
 	gcvalues.graphics_exposures = False;
-	xelt_windowmain.drawbuf = XCreatePixmap(xelt_windowmain.display, xelt_windowmain.win, xelt_windowmain.width, xelt_windowmain.height, xelt_windowmain.depth);
+	xelt_windowmain.drawbuf = XCreatePixmap(xelt_windowmain.display, xelt_windowmain.id, xelt_windowmain.width, xelt_windowmain.height, xelt_windowmain.depth);
 	dc.gc = XCreateGC(xelt_windowmain.display,
 			(USE_ARGB)? xelt_windowmain.drawbuf: parent,
 			GCGraphicsExposures,
@@ -3058,14 +3068,14 @@ xinit(void)
 		}
 	}
 	xelt_windowmain.inputcontext = XCreateIC(xelt_windowmain.inputmethod, XNInputStyle, XIMPreeditNothing
-					   | XIMStatusNothing, XNClientWindow, xelt_windowmain.win,
-					   XNFocusWindow, xelt_windowmain.win, NULL);
+					   | XIMStatusNothing, XNClientWindow, xelt_windowmain.id,
+					   XNFocusWindow, xelt_windowmain.id, NULL);
 	if (xelt_windowmain.inputcontext == NULL)
 		printAndExit("XCreateIC failed. Could not obtain input method.\n");
 
 	/* white cursor, black outline */
 	cursor = XCreateFontCursor(xelt_windowmain.display, mouseshape);
-	XDefineCursor(xelt_windowmain.display, xelt_windowmain.win, cursor);
+	XDefineCursor(xelt_windowmain.display, xelt_windowmain.id, cursor);
 
 	if (XParseColor(xelt_windowmain.display, xelt_windowmain.colormap, colorname[mousefg], &xmousefg) == 0) {
 		xmousefg.red   = 0xffff;
@@ -3084,17 +3094,17 @@ xinit(void)
 	xelt_windowmain.xembed = XInternAtom(xelt_windowmain.display, "_XEMBED", False);
 	xelt_windowmain.wmdeletewin = XInternAtom(xelt_windowmain.display, "WM_DELETE_WINDOW", False);
 	xelt_windowmain.netwmname = XInternAtom(xelt_windowmain.display, "_NET_WM_NAME", False);
-	XSetWMProtocols(xelt_windowmain.display, xelt_windowmain.win, &xelt_windowmain.wmdeletewin, 1);
+	XSetWMProtocols(xelt_windowmain.display, xelt_windowmain.id, &xelt_windowmain.wmdeletewin, 1);
 
     	xelt_windowmain.netwmstate = XInternAtom(xelt_windowmain.display, "_NET_WM_STATE", False);
     	xelt_windowmain.netwmfullscreen = XInternAtom(xelt_windowmain.display, "_NET_WM_STATE_FULLSCREEN", False);
 
 	xelt_windowmain.netwmpid = XInternAtom(xelt_windowmain.display, "_NET_WM_PID", False);
-	XChangeProperty(xelt_windowmain.display, xelt_windowmain.win, xelt_windowmain.netwmpid, XA_CARDINAL, 32,
+	XChangeProperty(xelt_windowmain.display, xelt_windowmain.id, xelt_windowmain.netwmpid, XA_CARDINAL, 32,
 			PropModeReplace, (xelt_uchar *)&thispid, 1);
 
 	window_title_set();
-	XMapWindow(xelt_windowmain.display, xelt_windowmain.win);
+	XMapWindow(xelt_windowmain.display, xelt_windowmain.id);
 	xhints();
 	XSync(xelt_windowmain.display, False);
 }
@@ -3482,8 +3492,8 @@ xsettitle(char *p)
 
 	Xutf8TextListToTextProperty(xelt_windowmain.display, &p, 1, XUTF8StringStyle,
 			&prop);
-	XSetWMName(xelt_windowmain.display, xelt_windowmain.win, &prop);
-	XSetTextProperty(xelt_windowmain.display, xelt_windowmain.win, &prop, xelt_windowmain.netwmname);
+	XSetWMName(xelt_windowmain.display, xelt_windowmain.id, &prop);
+	XSetTextProperty(xelt_windowmain.display, xelt_windowmain.id, &prop, xelt_windowmain.netwmname);
 	XFree(prop.value);
 }
 
@@ -3504,7 +3514,7 @@ void
 draw(void)
 {
 	drawregion(0, 0, terminal.col, terminal.row);
-	XCopyArea(xelt_windowmain.display, xelt_windowmain.drawbuf, xelt_windowmain.win, dc.gc, 0, 0, xelt_windowmain.width,
+	XCopyArea(xelt_windowmain.display, xelt_windowmain.drawbuf, xelt_windowmain.id, dc.gc, 0, 0, xelt_windowmain.width,
 			xelt_windowmain.height, 0, 0);
 	XSetForeground(xelt_windowmain.display, dc.gc,
 			dc.col[IS_SET(XELT_TERMINAL_REVERSE)?
@@ -3580,16 +3590,16 @@ void
 xsetpointermotion(int set)
 {
 	MODBIT(xelt_windowmain.attrs.event_mask, set, PointerMotionMask);
-	XChangeWindowAttributes(xelt_windowmain.display, xelt_windowmain.win, CWEventMask, &xelt_windowmain.attrs);
+	XChangeWindowAttributes(xelt_windowmain.display, xelt_windowmain.id, CWEventMask, &xelt_windowmain.attrs);
 }
 
 void
 xseturgency(int add)
 {
-	XWMHints *h = XGetWMHints(xelt_windowmain.display, xelt_windowmain.win);
+	XWMHints *h = XGetWMHints(xelt_windowmain.display, xelt_windowmain.id);
 
 	MODBIT(h->flags, add, XUrgencyHint);
-	XSetWMHints(xelt_windowmain.display, xelt_windowmain.win, h);
+	XSetWMHints(xelt_windowmain.display, xelt_windowmain.id, h);
 	XFree(h);
 }
 
@@ -3764,7 +3774,7 @@ togglefullscreen(const xelt_Arg *arg)
     Atom wmstateremove = XInternAtom(xelt_windowmain.display,"_NET_WM_STATE_REMOVE",False);
 
 
-    status = XGetWindowProperty(xelt_windowmain.display, xelt_windowmain.win, xelt_windowmain.netwmstate, 0, (~0L), 
+    status = XGetWindowProperty(xelt_windowmain.display, xelt_windowmain.id, xelt_windowmain.netwmstate, 0, (~0L), 
             False, AnyPropertyType, &type, &format, &nItem, &bytesAfter, &properties);
     if (status == Success && properties)
 	{
@@ -3772,7 +3782,7 @@ togglefullscreen(const xelt_Arg *arg)
         XEvent e;
         memset( &e, 0, sizeof(e) );
         e.type = ClientMessage;
-        e.xclient.window = xelt_windowmain.win;
+        e.xclient.window = xelt_windowmain.id;
         e.xclient.message_type = xelt_windowmain.netwmstate;
         e.xclient.format = 32;
         e.xclient.data.l[0] = (prop != xelt_windowmain.netwmfullscreen) ? 1: wmstateremove;
@@ -3799,6 +3809,9 @@ resize(XEvent *e)
 void
 run(void)
 {
+	char *me="run";
+	xelt_log(me,"started");
+	selinit();
 	XEvent ev;
 	int w = xelt_windowmain.width, h = xelt_windowmain.height;
 	fd_set rfd;  //add rfd file descriptor to monitor it.
@@ -3824,7 +3837,6 @@ run(void)
 	cresize(w, h);
 	ttynew();
 	ttyresize();
-
 	clock_gettime(CLOCK_MONOTONIC, &last);
 	
 	for (xev = actionfps;;) {
@@ -3891,9 +3903,8 @@ main(int argc, char *argv[])
 	window_title = basename(xstrdup(argv[0]));
 	setlocale(LC_CTYPE, "");
 	XSetLocaleModifiers("");//determine locale support and configure locale modifiers
-	tnew(MAX(cols, 1), MAX(rows, 1)); // create new xelt_Terminal Screen and store it in terminal global var
+	tnew(MAX(cols, 1), MAX(rows, 1)); // create new xelt_Terminal and store it in terminal global var
 	xinit();
-	selinit();
 	run();
 
 	return 0;

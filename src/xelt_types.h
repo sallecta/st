@@ -15,7 +15,7 @@ typedef XftDraw *xelt_Draw;
 typedef struct {
 	Display *display;
 	Colormap colormap;
-	Window win;
+	Window id;
 	Drawable drawbuf;
 	Atom xembed, wmdeletewin, netwmname, netwmpid, netwmstate, netwmfullscreen;
 	XIM inputmethod;

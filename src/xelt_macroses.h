@@ -1,9 +1,6 @@
 
-#define xelt_macro_max(a, b)		((a) < (b) ? (b) : (a))
-#define xelt_macro_len(a)			(sizeof(a) / sizeof(a)[0])
 
- 
-/* macros */
+/* original macroses */
 #define MIN(a, b)		((a) < (b) ? (a) : (b))
 #define MAX(a, b)		((a) < (b) ? (b) : (a))
 #define LEN(a)			(sizeof(a) / sizeof(a)[0])
@@ -28,3 +25,24 @@
 #define TRUERED(x)		(((x) & 0xff0000) >> 8)
 #define TRUEGREEN(x)		(((x) & 0xff00))
 #define TRUEBLUE(x)		(((x) & 0xff) << 8)
+
+/* logger */
+/*
+usage:
+char *me="sender_name";
+xelt_log(me,"started");
+or
+char charbuf256[256];
+snprintf(charbuf256, sizeof charbuf256, "%s%s", "text1: ", "text2");
+snprintf(charbuf256, 256 "%s%s", "text1: ", "text2");
+xelt_log(me,charbuf256);
+*/
+#if   defined(xelt_log_messages)
+	void xelt_log(char *argStr1,char *argStr2)
+	{
+		printf("%s: %s\n",argStr1,argStr2);
+	}
+#else
+	void xelt_log(char *argStr1,char *argStr2)
+	{}	
+#endif
