@@ -1,3 +1,5 @@
 # ignore directory
 /buildout/
+# ignore directory
+/ignore/
 
