@@ -77,7 +77,7 @@ static void (*handler[LASTEvent])(XEvent *) = {
 /* Globals */
 static xelt_DrawingContext dc;
 static xelt_Window xelt_windowmain;
-static xelt_TerminalScreen term;
+static xelt_Terminal terminal;
 static xelt_CSIEscape csiescseq;
 static xelt_STREscape strescseq;
 static int cmdfd;
@@ -100,8 +100,8 @@ static double defaultfontsize = 0;
 
 static xelt_uchar utfbyte[XELT_SIZE_UTF + 1] = {0x80,    0, 0xC0, 0xE0, 0xF0};
 static xelt_uchar utfmask[XELT_SIZE_UTF + 1] = {0xC0, 0x80, 0xE0, 0xF0, 0xF8};
-static xelt_Rune utfmin[XELT_SIZE_UTF + 1] = {       0,    0,  0x80,  0x800,  0x10000};
-static xelt_Rune utfmax[XELT_SIZE_UTF + 1] = {0x10FFFF, 0x7F, 0x7FF, 0xFFFF, 0x10FFFF};
+static xelt_CharCode utfmin[XELT_SIZE_UTF + 1] = {       0,    0,  0x80,  0x800,  0x10000};
+static xelt_CharCode utfmax[XELT_SIZE_UTF + 1] = {0x10FFFF, 0x7F, 0x7FF, 0xFFFF, 0x10FFFF};
 
 
 /* xelt_Fontcache is an array now. A new font will be appended to the array. */
@@ -155,10 +155,10 @@ xstrdup(char *s)
 }
 
 size_t
-utf8decode(char *c, xelt_Rune *u, size_t clen)
+utf8decode(char *c, xelt_CharCode *u, size_t clen)
 {
 	size_t i, j, len, type;
-	xelt_Rune udecoded;
+	xelt_CharCode udecoded;
 
 	*u = XELT_SIZE_UTF_INVALID;
 	if (!clen)
@@ -179,7 +179,7 @@ utf8decode(char *c, xelt_Rune *u, size_t clen)
 	return len;
 }
 
-xelt_Rune
+xelt_CharCode
 utf8decodebyte(char c, size_t *i)
 {
 	for (*i = 0; *i < LEN(utfmask); ++(*i))
@@ -190,7 +190,7 @@ utf8decodebyte(char c, size_t *i)
 }
 
 size_t
-utf8encode(xelt_Rune u, char *c)
+utf8encode(xelt_CharCode u, char *c)
 {
 	size_t len, i;
 
@@ -208,15 +208,15 @@ utf8encode(xelt_Rune u, char *c)
 }
 
 char
-utf8encodebyte(xelt_Rune u, size_t i)
+utf8encodebyte(xelt_CharCode u, size_t i)
 {
 	return utfbyte[i] | (u & ~utfmask[i]);
 }
 
 char *
-utf8strchr(char *s, xelt_Rune u)
+utf8strchr(char *s, xelt_CharCode u)
 {
-	xelt_Rune r;
+	xelt_CharCode r;
 	size_t i, j, len;
 
 	len = strlen(s);
@@ -231,7 +231,7 @@ utf8strchr(char *s, xelt_Rune u)
 }
 
 size_t
-utf8validate(xelt_Rune *u, size_t i)
+utf8validate(xelt_CharCode *u, size_t i)
 {
 	if (!BETWEEN(*u, utfmin[i], utfmax[i]) || BETWEEN(*u, 0xD800, 0xDFFF))
 		*u = XELT_SIZE_UTF_INVALID;
@@ -262,7 +262,7 @@ x2col(int x)
 	x -= borderpx;
 	x /= xelt_windowmain.charwidth;
 
-	return LIMIT(x, 0, term.col-1);
+	return LIMIT(x, 0, terminal.col-1);
 }
 
 int
@@ -271,18 +271,18 @@ y2row(int y)
 	y -= borderpx;
 	y /= xelt_windowmain.charheight;
 
-	return LIMIT(y, 0, term.row-1);
+	return LIMIT(y, 0, terminal.row-1);
 }
 
 int
 tlinelen(int y)
 {
-	int i = term.col;
+	int i = terminal.col;
 
-	if (term.line[y][i - 1].mode & XELT_ATTR_WRAP)
+	if (terminal.line[y][i - 1].mode & XELT_ATTR_WRAP)
 		return i;
 
-	while (i > 0 && term.line[y][i - 1].u == ' ')
+	while (i > 0 && terminal.line[y][i - 1].u == ' ')
 		--i;
 
 	return i;
@@ -313,7 +313,7 @@ selnormalize(void)
 	if (i < sel.nb.x)
 		sel.nb.x = i;
 	if (tlinelen(sel.ne.y) <= sel.ne.x)
-		sel.ne.x = term.col - 1;
+		sel.ne.x = terminal.col - 1;
 }
 
 int
@@ -344,29 +344,29 @@ selsnap(int *x, int *y, int direction)
 		 * Snap around if the word wraps around at the end or
 		 * beginning of a line.
 		 */
-		prevgp = &term.line[*y][*x];
+		prevgp = &terminal.line[*y][*x];
 		prevdelim = ISDELIM(prevgp->u);
 		for (;;) {
 			newx = *x + direction;
 			newy = *y;
-			if (!BETWEEN(newx, 0, term.col - 1)) {
+			if (!BETWEEN(newx, 0, terminal.col - 1)) {
 				newy += direction;
-				newx = (newx + term.col) % term.col;
-				if (!BETWEEN(newy, 0, term.row - 1))
+				newx = (newx + terminal.col) % terminal.col;
+				if (!BETWEEN(newy, 0, terminal.row - 1))
 					break;
 
 				if (direction > 0)
 					yt = *y, xt = *x;
 				else
 					yt = newy, xt = newx;
-				if (!(term.line[yt][xt].mode & XELT_ATTR_WRAP))
+				if (!(terminal.line[yt][xt].mode & XELT_ATTR_WRAP))
 					break;
 			}
 
 			if (newx >= tlinelen(newy))
 				break;
 
-			gp = &term.line[newy][newx];
+			gp = &terminal.line[newy][newx];
 			delim = ISDELIM(gp->u);
 			if (!(gp->mode & XELT_ATTR_WDUMMY) && (delim != prevdelim
 					|| (delim && gp->u != prevgp->u)))
@@ -384,17 +384,17 @@ selsnap(int *x, int *y, int direction)
 		 * has set XELT_ATTR_WRAP at its end. Then the whole next or
 		 * previous line will be selected.
 		 */
-		*x = (direction < 0) ? 0 : term.col - 1;
+		*x = (direction < 0) ? 0 : terminal.col - 1;
 		if (direction < 0) {
 			for (; *y > 0; *y += direction) {
-				if (!(term.line[*y-1][term.col-1].mode
+				if (!(terminal.line[*y-1][terminal.col-1].mode
 						& XELT_ATTR_WRAP)) {
 					break;
 				}
 			}
 		} else if (direction > 0) {
-			for (; *y < term.row-1; *y += direction) {
-				if (!(term.line[*y][term.col-1].mode
+			for (; *y < terminal.row-1; *y += direction) {
+				if (!(terminal.line[*y][terminal.col-1].mode
 						& XELT_ATTR_WRAP)) {
 					break;
 				}
@@ -549,7 +549,7 @@ getsel(void)
 	if (sel.ob.x == -1)
 		return NULL;
 
-	bufsize = (term.col+1) * (sel.ne.y-sel.nb.y+1) * XELT_SIZE_UTF;
+	bufsize = (terminal.col+1) * (sel.ne.y-sel.nb.y+1) * XELT_SIZE_UTF;
 	ptr = str = xmalloc(bufsize);
 
 	/* append every set & selected glyph to the selection */
@@ -560,13 +560,13 @@ getsel(void)
 		}
 
 		if (sel.type == XELT_SEL_RECTANGULAR) {
-			gp = &term.line[y][sel.nb.x];
+			gp = &terminal.line[y][sel.nb.x];
 			lastx = sel.ne.x;
 		} else {
-			gp = &term.line[y][sel.nb.y == y ? sel.nb.x : 0];
-			lastx = (sel.ne.y == y) ? sel.ne.x : term.col-1;
+			gp = &terminal.line[y][sel.nb.y == y ? sel.nb.x : 0];
+			lastx = (sel.ne.y == y) ? sel.ne.x : terminal.col-1;
 		}
-		last = &term.line[y][MIN(lastx, linelen-1)];
+		last = &terminal.line[y][MIN(lastx, linelen-1)];
 		while (last >= gp && last->u == ' ')
 			--last;
 
@@ -964,10 +964,10 @@ void
 ttynew(void)
 {
 	int m, s;
-	struct winsize w = {term.row, term.col, 0, 0};
+	struct winsize w = {terminal.row, terminal.col, 0, 0};
 
 	if (opt_io) {
-		term.mode |= XELT_TERMINAL_PRINT;
+		terminal.mode |= XELT_TERMINAL_PRINT;
 		iofd = (!strcmp(opt_io, "-")) ?
 			  1 : open(opt_io, O_WRONLY | O_CREAT, 0666);
 		if (iofd < 0) {
@@ -1019,7 +1019,7 @@ ttyread(void)
 	static int buflen = 0;
 	char *ptr;
 	int charsize; /* size of utf8 char in bytes */
-	xelt_Rune unicodep;
+	xelt_CharCode unicodep;
 	int ret;
 
 	/* append read bytes to unprocessed bytes */
@@ -1102,7 +1102,7 @@ void
 ttysend(char *s, size_t n)
 {
 	int len;
-	xelt_Rune u;
+	xelt_CharCode u;
 
 	ttywrite(s, n);
 	if (IS_SET(XELT_TERMINAL_ECHO))
@@ -1118,8 +1118,8 @@ ttyresize(void)
 {
 	struct winsize w;
 
-	w.ws_row = term.row;
-	w.ws_col = term.col;
+	w.ws_row = terminal.row;
+	w.ws_col = terminal.col;
 	w.ws_xpixel = xelt_windowmain.ttywidth;
 	w.ws_ypixel = xelt_windowmain.ttyheight;
 	if (ioctl(cmdfd, TIOCSWINSZ, &w) < 0)
@@ -1131,9 +1131,9 @@ tattrset(int attr)
 {
 	int i, j;
 
-	for (i = 0; i < term.row-1; i++) {
-		for (j = 0; j < term.col-1; j++) {
-			if (term.line[i][j].mode & attr)
+	for (i = 0; i < terminal.row-1; i++) {
+		for (j = 0; j < terminal.col-1; j++) {
+			if (terminal.line[i][j].mode & attr)
 				return 1;
 		}
 	}
@@ -1146,32 +1146,18 @@ tsetdirt(int top, int bot)
 {
 	int i;
 
-	LIMIT(top, 0, term.row-1);
-	LIMIT(bot, 0, term.row-1);
+	LIMIT(top, 0, terminal.row-1);
+	LIMIT(bot, 0, terminal.row-1);
 
 	for (i = top; i <= bot; i++)
-		term.dirty[i] = 1;
+		terminal.dirty[i] = 1;
 }
 
-void
-tsetdirtattr(int attr)
-{
-	int i, j;
-
-	for (i = 0; i < term.row-1; i++) {
-		for (j = 0; j < term.col-1; j++) {
-			if (term.line[i][j].mode & attr) {
-				tsetdirt(i, i);
-				break;
-			}
-		}
-	}
-}
 
 void
 tfulldirt(void)
 {
-	tsetdirt(0, term.row-1);
+	tsetdirt(0, terminal.row-1);
 }
 
 void
@@ -1181,9 +1167,9 @@ tcursor(int mode)
 	int alt = IS_SET(XELT_TERMINAL_ALTSCREEN);
 
 	if (mode == XELT_CURSOR_SAVE) {
-		c[alt] = term.c;
+		c[alt] = terminal.cursor;
 	} else if (mode == XELT_CURSOR_LOAD) {
-		term.c = c[alt];
+		terminal.cursor = c[alt];
 		tmoveto(c[alt].x, c[alt].y);
 	}
 }
@@ -1193,25 +1179,25 @@ treset(void)
 {
 	xelt_uint i;
 
-	term.c = (xelt_TCursor){{
+	terminal.cursor = (xelt_TCursor){{
 		.mode = XELT_ATTR_NULL,
 		.fg = defaultfg,
 		.bg = defaultbg
 	}, .x = 0, .y = 0, .state = XELT_CURSOR_DEFAULT};
 
-	memset(term.tabs, 0, term.col * sizeof(*term.tabs));
-	for (i = tabspaces; i < term.col; i += tabspaces)
-		term.tabs[i] = 1;
-	term.top = 0;
-	term.bot = term.row - 1;
-	term.mode = XELT_TERMINAL_WRAP;
-	memset(term.trantbl, XELT_CHARSET_USA, sizeof(term.trantbl));
-	term.charset = 0;
+	memset(terminal.tabs, 0, terminal.col * sizeof(*terminal.tabs));
+	for (i = tabspaces; i < terminal.col; i += tabspaces)
+		terminal.tabs[i] = 1;
+	terminal.top = 0;
+	terminal.bot = terminal.row - 1;
+	terminal.mode = XELT_TERMINAL_WRAP;
+	memset(terminal.trantbl, XELT_CHARSET_USA, sizeof(terminal.trantbl));
+	terminal.charset = 0;
 
 	for (i = 0; i < 2; i++) {
 		tmoveto(0, 0);
 		tcursor(XELT_CURSOR_SAVE);
-		tclearregion(0, 0, term.col-1, term.row-1);
+		tclearregion(0, 0, terminal.col-1, terminal.row-1);
 		tswapscreen();
 	}
 }
@@ -1219,9 +1205,9 @@ treset(void)
 void
 tnew(int col, int row)
 {
-	term = (xelt_TerminalScreen){ .c = { .attr = { .fg = defaultfg, .bg = defaultbg } } };
+	terminal = (xelt_Terminal){ .cursor = { .attr = { .fg = defaultfg, .bg = defaultbg } } };
 	tresize(col, row);
-	term.numlock = 1;
+	terminal.numlock = 1;
 
 	treset();
 }
@@ -1229,11 +1215,11 @@ tnew(int col, int row)
 void
 tswapscreen(void)
 {
-	xelt_Line *tmp = term.line;
+	xelt_Line *tmp = terminal.line;
 
-	term.line = term.alt;
-	term.alt = tmp;
-	term.mode ^= XELT_TERMINAL_ALTSCREEN;
+	terminal.line = terminal.alt;
+	terminal.alt = tmp;
+	terminal.mode ^= XELT_TERMINAL_ALTSCREEN;
 	tfulldirt();
 }
 
@@ -1243,15 +1229,15 @@ tscrolldown(int orig, int n)
 	int i;
 	xelt_Line temp;
 
-	LIMIT(n, 0, term.bot-orig+1);
+	LIMIT(n, 0, terminal.bot-orig+1);
 
-	tsetdirt(orig, term.bot-n);
-	tclearregion(0, term.bot-n+1, term.col-1, term.bot);
+	tsetdirt(orig, terminal.bot-n);
+	tclearregion(0, terminal.bot-n+1, terminal.col-1, terminal.bot);
 
-	for (i = term.bot; i >= orig+n; i--) {
-		temp = term.line[i];
-		term.line[i] = term.line[i-n];
-		term.line[i-n] = temp;
+	for (i = terminal.bot; i >= orig+n; i--) {
+		temp = terminal.line[i];
+		terminal.line[i] = terminal.line[i-n];
+		terminal.line[i-n] = temp;
 	}
 
 	selscroll(orig, n);
@@ -1263,15 +1249,15 @@ tscrollup(int orig, int n)
 	int i;
 	xelt_Line temp;
 
-	LIMIT(n, 0, term.bot-orig+1);
+	LIMIT(n, 0, terminal.bot-orig+1);
 
-	tclearregion(0, orig, term.col-1, orig+n-1);
-	tsetdirt(orig+n, term.bot);
+	tclearregion(0, orig, terminal.col-1, orig+n-1);
+	tsetdirt(orig+n, terminal.bot);
 
-	for (i = orig; i <= term.bot-n; i++) {
-		temp = term.line[i];
-		term.line[i] = term.line[i+n];
-		term.line[i+n] = temp;
+	for (i = orig; i <= terminal.bot-n; i++) {
+		temp = terminal.line[i];
+		terminal.line[i] = terminal.line[i+n];
+		terminal.line[i+n] = temp;
 	}
 
 	selscroll(orig, -n);
@@ -1283,24 +1269,24 @@ selscroll(int orig, int n)
 	if (sel.ob.x == -1)
 		return;
 
-	if (BETWEEN(sel.ob.y, orig, term.bot) || BETWEEN(sel.oe.y, orig, term.bot)) {
-		if ((sel.ob.y += n) > term.bot || (sel.oe.y += n) < term.top) {
+	if (BETWEEN(sel.ob.y, orig, terminal.bot) || BETWEEN(sel.oe.y, orig, terminal.bot)) {
+		if ((sel.ob.y += n) > terminal.bot || (sel.oe.y += n) < terminal.top) {
 			selclear(NULL);
 			return;
 		}
 		if (sel.type == XELT_SEL_RECTANGULAR) {
-			if (sel.ob.y < term.top)
-				sel.ob.y = term.top;
-			if (sel.oe.y > term.bot)
-				sel.oe.y = term.bot;
+			if (sel.ob.y < terminal.top)
+				sel.ob.y = terminal.top;
+			if (sel.oe.y > terminal.bot)
+				sel.oe.y = terminal.bot;
 		} else {
-			if (sel.ob.y < term.top) {
-				sel.ob.y = term.top;
+			if (sel.ob.y < terminal.top) {
+				sel.ob.y = terminal.top;
 				sel.ob.x = 0;
 			}
-			if (sel.oe.y > term.bot) {
-				sel.oe.y = term.bot;
-				sel.oe.x = term.col;
+			if (sel.oe.y > terminal.bot) {
+				sel.oe.y = terminal.bot;
+				sel.oe.x = terminal.col;
 			}
 		}
 		selnormalize();
@@ -1310,14 +1296,14 @@ selscroll(int orig, int n)
 void
 tnewline(int first_col)
 {
-	int y = term.c.y;
+	int y = terminal.cursor.y;
 
-	if (y == term.bot) {
-		tscrollup(term.top, 1);
+	if (y == terminal.bot) {
+		tscrollup(terminal.top, 1);
 	} else {
 		y++;
 	}
-	tmoveto(first_col ? 0 : term.c.x, y);
+	tmoveto(first_col ? 0 : terminal.cursor.x, y);
 }
 
 void
@@ -1354,7 +1340,7 @@ csiparse(void)
 void
 tmoveato(int x, int y)
 {
-	tmoveto(x, y + ((term.c.state & XELT_CURSOR_ORIGIN) ? term.top: 0));
+	tmoveto(x, y + ((terminal.cursor.state & XELT_CURSOR_ORIGIN) ? terminal.top: 0));
 }
 
 void
@@ -1362,20 +1348,20 @@ tmoveto(int x, int y)
 {
 	int miny, maxy;
 
-	if (term.c.state & XELT_CURSOR_ORIGIN) {
-		miny = term.top;
-		maxy = term.bot;
+	if (terminal.cursor.state & XELT_CURSOR_ORIGIN) {
+		miny = terminal.top;
+		maxy = terminal.bot;
 	} else {
 		miny = 0;
-		maxy = term.row - 1;
+		maxy = terminal.row - 1;
 	}
-	term.c.state &= ~XELT_CURSOR_WRAPNEXT;
-	term.c.x = LIMIT(x, 0, term.col-1);
-	term.c.y = LIMIT(y, miny, maxy);
+	terminal.cursor.state &= ~XELT_CURSOR_WRAPNEXT;
+	terminal.cursor.x = LIMIT(x, 0, terminal.col-1);
+	terminal.cursor.y = LIMIT(y, miny, maxy);
 }
 
 void
-tsetchar(xelt_Rune u, xelt_Glyph *attr, int x, int y)
+tsetchar(xelt_CharCode u, xelt_Glyph *attr, int x, int y)
 {
 	static char *vt100_0[62] = { /* 0x41 - 0x7e */
 		"↑", "↓", "→", "←", "█", "▚", "☃", /* A - G */
@@ -1391,23 +1377,23 @@ tsetchar(xelt_Rune u, xelt_Glyph *attr, int x, int y)
 	/*
 	 * The table is proudly stolen from rxvt.
 	 */
-	if (term.trantbl[term.charset] == XELT_CHARSET_GRAPHIC0 &&
+	if (terminal.trantbl[terminal.charset] == XELT_CHARSET_GRAPHIC0 &&
 	   BETWEEN(u, 0x41, 0x7e) && vt100_0[u - 0x41])
 		utf8decode(vt100_0[u - 0x41], &u, XELT_SIZE_UTF);
 
-	if (term.line[y][x].mode & XELT_ATTR_WIDE) {
-		if (x+1 < term.col) {
-			term.line[y][x+1].u = ' ';
-			term.line[y][x+1].mode &= ~XELT_ATTR_WDUMMY;
+	if (terminal.line[y][x].mode & XELT_ATTR_WIDE) {
+		if (x+1 < terminal.col) {
+			terminal.line[y][x+1].u = ' ';
+			terminal.line[y][x+1].mode &= ~XELT_ATTR_WDUMMY;
 		}
-	} else if (term.line[y][x].mode & XELT_ATTR_WDUMMY) {
-		term.line[y][x-1].u = ' ';
-		term.line[y][x-1].mode &= ~XELT_ATTR_WIDE;
+	} else if (terminal.line[y][x].mode & XELT_ATTR_WDUMMY) {
+		terminal.line[y][x-1].u = ' ';
+		terminal.line[y][x-1].mode &= ~XELT_ATTR_WIDE;
 	}
 
-	term.dirty[y] = 1;
-	term.line[y][x] = *attr;
-	term.line[y][x].u = u;
+	terminal.dirty[y] = 1;
+	terminal.line[y][x] = *attr;
+	terminal.line[y][x].u = u;
 }
 
 void
@@ -1421,19 +1407,19 @@ tclearregion(int x1, int y1, int x2, int y2)
 	if (y1 > y2)
 		temp = y1, y1 = y2, y2 = temp;
 
-	LIMIT(x1, 0, term.col-1);
-	LIMIT(x2, 0, term.col-1);
-	LIMIT(y1, 0, term.row-1);
-	LIMIT(y2, 0, term.row-1);
+	LIMIT(x1, 0, terminal.col-1);
+	LIMIT(x2, 0, terminal.col-1);
+	LIMIT(y1, 0, terminal.row-1);
+	LIMIT(y2, 0, terminal.row-1);
 
 	for (y = y1; y <= y2; y++) {
-		term.dirty[y] = 1;
+		terminal.dirty[y] = 1;
 		for (x = x1; x <= x2; x++) {
-			gp = &term.line[y][x];
+			gp = &terminal.line[y][x];
 			if (selected(x, y))
 				selclear(NULL);
-			gp->fg = term.c.attr.fg;
-			gp->bg = term.c.attr.bg;
+			gp->fg = terminal.cursor.attr.fg;
+			gp->bg = terminal.cursor.attr.bg;
 			gp->mode = 0;
 			gp->u = ' ';
 		}
@@ -1446,15 +1432,15 @@ tdeletechar(int n)
 	int dst, src, size;
 	xelt_Glyph *line;
 
-	LIMIT(n, 0, term.col - term.c.x);
+	LIMIT(n, 0, terminal.col - terminal.cursor.x);
 
-	dst = term.c.x;
-	src = term.c.x + n;
-	size = term.col - src;
-	line = term.line[term.c.y];
+	dst = terminal.cursor.x;
+	src = terminal.cursor.x + n;
+	size = terminal.col - src;
+	line = terminal.line[terminal.cursor.y];
 
 	memmove(&line[dst], &line[src], size * sizeof(xelt_Glyph));
-	tclearregion(term.col-n, term.c.y, term.col-1, term.c.y);
+	tclearregion(terminal.col-n, terminal.cursor.y, terminal.col-1, terminal.cursor.y);
 }
 
 void
@@ -1463,29 +1449,29 @@ tinsertblank(int n)
 	int dst, src, size;
 	xelt_Glyph *line;
 
-	LIMIT(n, 0, term.col - term.c.x);
+	LIMIT(n, 0, terminal.col - terminal.cursor.x);
 
-	dst = term.c.x + n;
-	src = term.c.x;
-	size = term.col - dst;
-	line = term.line[term.c.y];
+	dst = terminal.cursor.x + n;
+	src = terminal.cursor.x;
+	size = terminal.col - dst;
+	line = terminal.line[terminal.cursor.y];
 
 	memmove(&line[dst], &line[src], size * sizeof(xelt_Glyph));
-	tclearregion(src, term.c.y, dst - 1, term.c.y);
+	tclearregion(src, terminal.cursor.y, dst - 1, terminal.cursor.y);
 }
 
 void
 tinsertblankline(int n)
 {
-	if (BETWEEN(term.c.y, term.top, term.bot))
-		tscrolldown(term.c.y, n);
+	if (BETWEEN(terminal.cursor.y, terminal.top, terminal.bot))
+		tscrolldown(terminal.cursor.y, n);
 }
 
 void
 tdeleteline(int n)
 {
-	if (BETWEEN(term.c.y, term.top, term.bot))
-		tscrollup(term.c.y, n);
+	if (BETWEEN(terminal.cursor.y, terminal.top, terminal.bot))
+		tscrollup(terminal.cursor.y, n);
 }
 
 int32_t
@@ -1547,7 +1533,7 @@ tsetattr(int *attr, int l)
 	for (i = 0; i < l; i++) {
 		switch (attr[i]) {
 		case 0:
-			term.c.attr.mode &= ~(
+			terminal.cursor.attr.mode &= ~(
 				XELT_ATTR_BOLD       |
 				XELT_ATTR_FAINT      |
 				XELT_ATTR_ITALIC     |
@@ -1556,79 +1542,79 @@ tsetattr(int *attr, int l)
 				XELT_ATTR_REVERSE    |
 				XELT_ATTR_INVISIBLE  |
 				XELT_ATTR_STRUCK     );
-			term.c.attr.fg = defaultfg;
-			term.c.attr.bg = defaultbg;
+			terminal.cursor.attr.fg = defaultfg;
+			terminal.cursor.attr.bg = defaultbg;
 			break;
 		case 1:
-			term.c.attr.mode |= XELT_ATTR_BOLD;
+			terminal.cursor.attr.mode |= XELT_ATTR_BOLD;
 			break;
 		case 2:
-			term.c.attr.mode |= XELT_ATTR_FAINT;
+			terminal.cursor.attr.mode |= XELT_ATTR_FAINT;
 			break;
 		case 3:
-			term.c.attr.mode |= XELT_ATTR_ITALIC;
+			terminal.cursor.attr.mode |= XELT_ATTR_ITALIC;
 			break;
 		case 4:
-			term.c.attr.mode |= XELT_ATTR_UNDERLINE;
+			terminal.cursor.attr.mode |= XELT_ATTR_UNDERLINE;
 			break;
 		case 5: /* slow blink */
 			/* FALLTHROUGH */
 		case 6: /* rapid blink */
-			term.c.attr.mode |= XELT_ATTR_BLINK;
+			terminal.cursor.attr.mode |= XELT_ATTR_BLINK;
 			break;
 		case 7:
-			term.c.attr.mode |= XELT_ATTR_REVERSE;
+			terminal.cursor.attr.mode |= XELT_ATTR_REVERSE;
 			break;
 		case 8:
-			term.c.attr.mode |= XELT_ATTR_INVISIBLE;
+			terminal.cursor.attr.mode |= XELT_ATTR_INVISIBLE;
 			break;
 		case 9:
-			term.c.attr.mode |= XELT_ATTR_STRUCK;
+			terminal.cursor.attr.mode |= XELT_ATTR_STRUCK;
 			break;
 		case 22:
-			term.c.attr.mode &= ~(XELT_ATTR_BOLD | XELT_ATTR_FAINT);
+			terminal.cursor.attr.mode &= ~(XELT_ATTR_BOLD | XELT_ATTR_FAINT);
 			break;
 		case 23:
-			term.c.attr.mode &= ~XELT_ATTR_ITALIC;
+			terminal.cursor.attr.mode &= ~XELT_ATTR_ITALIC;
 			break;
 		case 24:
-			term.c.attr.mode &= ~XELT_ATTR_UNDERLINE;
+			terminal.cursor.attr.mode &= ~XELT_ATTR_UNDERLINE;
 			break;
 		case 25:
-			term.c.attr.mode &= ~XELT_ATTR_BLINK;
+			terminal.cursor.attr.mode &= ~XELT_ATTR_BLINK;
 			break;
 		case 27:
-			term.c.attr.mode &= ~XELT_ATTR_REVERSE;
+			terminal.cursor.attr.mode &= ~XELT_ATTR_REVERSE;
 			break;
 		case 28:
-			term.c.attr.mode &= ~XELT_ATTR_INVISIBLE;
+			terminal.cursor.attr.mode &= ~XELT_ATTR_INVISIBLE;
 			break;
 		case 29:
-			term.c.attr.mode &= ~XELT_ATTR_STRUCK;
+			terminal.cursor.attr.mode &= ~XELT_ATTR_STRUCK;
 			break;
 		case 38:
 			if ((idx = tdefcolor(attr, &i, l)) >= 0)
-				term.c.attr.fg = idx;
+				terminal.cursor.attr.fg = idx;
 			break;
 		case 39:
-			term.c.attr.fg = defaultfg;
+			terminal.cursor.attr.fg = defaultfg;
 			break;
 		case 48:
 			if ((idx = tdefcolor(attr, &i, l)) >= 0)
-				term.c.attr.bg = idx;
+				terminal.cursor.attr.bg = idx;
 			break;
 		case 49:
-			term.c.attr.bg = defaultbg;
+			terminal.cursor.attr.bg = defaultbg;
 			break;
 		default:
 			if (BETWEEN(attr[i], 30, 37)) {
-				term.c.attr.fg = attr[i] - 30;
+				terminal.cursor.attr.fg = attr[i] - 30;
 			} else if (BETWEEN(attr[i], 40, 47)) {
-				term.c.attr.bg = attr[i] - 40;
+				terminal.cursor.attr.bg = attr[i] - 40;
 			} else if (BETWEEN(attr[i], 90, 97)) {
-				term.c.attr.fg = attr[i] - 90 + 8;
+				terminal.cursor.attr.fg = attr[i] - 90 + 8;
 			} else if (BETWEEN(attr[i], 100, 107)) {
-				term.c.attr.bg = attr[i] - 100 + 8;
+				terminal.cursor.attr.bg = attr[i] - 100 + 8;
 			} else {
 				fprintf(stderr,
 					"erresc(default): gfx attr %d unknown\n",
@@ -1644,15 +1630,15 @@ tsetscroll(int t, int b)
 {
 	int temp;
 
-	LIMIT(t, 0, term.row-1);
-	LIMIT(b, 0, term.row-1);
+	LIMIT(t, 0, terminal.row-1);
+	LIMIT(b, 0, terminal.row-1);
 	if (t > b) {
 		temp = t;
 		t = b;
 		b = temp;
 	}
-	term.top = t;
-	term.bot = b;
+	terminal.top = t;
+	terminal.bot = b;
 }
 
 void
@@ -1665,20 +1651,20 @@ tsetmode(int priv, int set, int *args, int narg)
 		if (priv) {
 			switch (*args) {
 			case 1: /* DECCKM -- Cursor key */
-				MODBIT(term.mode, set, XELT_TERMINAL_APPCURSOR);
+				MODBIT(terminal.mode, set, XELT_TERMINAL_APPCURSOR);
 				break;
 			case 5: /* DECSCNM -- Reverse video */
-				mode = term.mode;
-				MODBIT(term.mode, set, XELT_TERMINAL_REVERSE);
-				if (mode != term.mode)
+				mode = terminal.mode;
+				MODBIT(terminal.mode, set, XELT_TERMINAL_REVERSE);
+				if (mode != terminal.mode)
 					redraw();
 				break;
 			case 6: /* DECOM -- Origin */
-				MODBIT(term.c.state, set, XELT_CURSOR_ORIGIN);
+				MODBIT(terminal.cursor.state, set, XELT_CURSOR_ORIGIN);
 				tmoveato(0, 0);
 				break;
 			case 7: /* DECAWM -- Auto wrap */
-				MODBIT(term.mode, set, XELT_TERMINAL_WRAP);
+				MODBIT(terminal.mode, set, XELT_TERMINAL_WRAP);
 				break;
 			case 0:  /* Error (IGNORED) */
 			case 2:  /* DECANM -- ANSI/VT52 (IGNORED) */
@@ -1691,36 +1677,36 @@ tsetmode(int priv, int set, int *args, int narg)
 			case 12: /* att610 -- Start blinking cursor (IGNORED) */
 				break;
 			case 25: /* DECTCEM -- Text Cursor Enable Mode */
-				MODBIT(term.mode, !set, XELT_TERMINAL_HIDE);
+				MODBIT(terminal.mode, !set, XELT_TERMINAL_HIDE);
 				break;
 			case 9:    /* X10 mouse compatibility mode */
 				xsetpointermotion(0);
-				MODBIT(term.mode, 0, XELT_TERMINAL_MOUSE);
-				MODBIT(term.mode, set, XELT_TERMINAL_MOUSEX10);
+				MODBIT(terminal.mode, 0, XELT_TERMINAL_MOUSE);
+				MODBIT(terminal.mode, set, XELT_TERMINAL_MOUSEX10);
 				break;
 			case 1000: /* 1000: report button press */
 				xsetpointermotion(0);
-				MODBIT(term.mode, 0, XELT_TERMINAL_MOUSE);
-				MODBIT(term.mode, set, XELT_TERMINAL_MOUSEBTN);
+				MODBIT(terminal.mode, 0, XELT_TERMINAL_MOUSE);
+				MODBIT(terminal.mode, set, XELT_TERMINAL_MOUSEBTN);
 				break;
 			case 1002: /* 1002: report motion on button press */
 				xsetpointermotion(0);
-				MODBIT(term.mode, 0, XELT_TERMINAL_MOUSE);
-				MODBIT(term.mode, set, XELT_TERMINAL_MOUSEMOTION);
+				MODBIT(terminal.mode, 0, XELT_TERMINAL_MOUSE);
+				MODBIT(terminal.mode, set, XELT_TERMINAL_MOUSEMOTION);
 				break;
 			case 1003: /* 1003: enable all mouse motions */
 				xsetpointermotion(set);
-				MODBIT(term.mode, 0, XELT_TERMINAL_MOUSE);
-				MODBIT(term.mode, set, XELT_TERMINAL_MOUSEMANY);
+				MODBIT(terminal.mode, 0, XELT_TERMINAL_MOUSE);
+				MODBIT(terminal.mode, set, XELT_TERMINAL_MOUSEMANY);
 				break;
 			case 1004: /* 1004: send focus events to tty */
-				MODBIT(term.mode, set, XELT_TERMINAL_FOCUS);
+				MODBIT(terminal.mode, set, XELT_TERMINAL_FOCUS);
 				break;
 			case 1006: /* 1006: extended reporting mode */
-				MODBIT(term.mode, set, XELT_TERMINAL_MOUSESGR);
+				MODBIT(terminal.mode, set, XELT_TERMINAL_MOUSESGR);
 				break;
 			case 1034:
-				MODBIT(term.mode, set, XELT_TERMINAL_8BIT);
+				MODBIT(terminal.mode, set, XELT_TERMINAL_8BIT);
 				break;
 			case 1049: /* swap screen & set/restore cursor as xterm */
 				if (!allowaltscreen)
@@ -1733,8 +1719,8 @@ tsetmode(int priv, int set, int *args, int narg)
 					break;
 				alt = IS_SET(XELT_TERMINAL_ALTSCREEN);
 				if (alt) {
-					tclearregion(0, 0, term.col-1,
-							term.row-1);
+					tclearregion(0, 0, terminal.col-1,
+							terminal.row-1);
 				}
 				if (set ^ alt) /* set is always 1 or 0 */
 					tswapscreen();
@@ -1745,7 +1731,7 @@ tsetmode(int priv, int set, int *args, int narg)
 				tcursor((set) ? XELT_CURSOR_SAVE : XELT_CURSOR_LOAD);
 				break;
 			case 2004: /* 2004: bracketed paste mode */
-				MODBIT(term.mode, set, XELT_TERMINAL_BRCKTPASTE);
+				MODBIT(terminal.mode, set, XELT_TERMINAL_BRCKTPASTE);
 				break;
 			/* Not implemented mouse modes. See comments there. */
 			case 1001: /* mouse highlight mode; can hang the
@@ -1767,16 +1753,16 @@ tsetmode(int priv, int set, int *args, int narg)
 			case 0:  /* Error (IGNORED) */
 				break;
 			case 2:  /* KAM -- keyboard action */
-				MODBIT(term.mode, set, XELT_TERMINAL_KBDLOCK);
+				MODBIT(terminal.mode, set, XELT_TERMINAL_KBDLOCK);
 				break;
 			case 4:  /* IRM -- Insertion-replacement */
-				MODBIT(term.mode, set, XELT_TERMINAL_INSERT);
+				MODBIT(terminal.mode, set, XELT_TERMINAL_INSERT);
 				break;
 			case 12: /* SRM -- Send/Receive */
-				MODBIT(term.mode, !set, XELT_TERMINAL_ECHO);
+				MODBIT(terminal.mode, !set, XELT_TERMINAL_ECHO);
 				break;
 			case 20: /* LNM -- Linefeed/new line */
-				MODBIT(term.mode, set, XELT_TERMINAL_CRLF);
+				MODBIT(terminal.mode, set, XELT_TERMINAL_CRLF);
 				break;
 			default:
 				fprintf(stderr,
@@ -1807,12 +1793,12 @@ csihandle(void)
 		break;
 	case 'A': /* CUU -- Cursor <n> Up */
 		DEFAULT(csiescseq.arg[0], 1);
-		tmoveto(term.c.x, term.c.y-csiescseq.arg[0]);
+		tmoveto(terminal.cursor.x, terminal.cursor.y-csiescseq.arg[0]);
 		break;
 	case 'B': /* CUD -- Cursor <n> Down */
 	case 'e': /* VPR --Cursor <n> Down */
 		DEFAULT(csiescseq.arg[0], 1);
-		tmoveto(term.c.x, term.c.y+csiescseq.arg[0]);
+		tmoveto(terminal.cursor.x, terminal.cursor.y+csiescseq.arg[0]);
 		break;
 	case 'i': /* MC -- Media Copy */
 		switch (csiescseq.arg[0]) {
@@ -1820,16 +1806,16 @@ csihandle(void)
 			tdump();
 			break;
 		case 1:
-			tdumpline(term.c.y);
+			tdumpline(terminal.cursor.y);
 			break;
 		case 2:
 			tdumpsel();
 			break;
 		case 4:
-			term.mode &= ~XELT_TERMINAL_PRINT;
+			terminal.mode &= ~XELT_TERMINAL_PRINT;
 			break;
 		case 5:
-			term.mode |= XELT_TERMINAL_PRINT;
+			terminal.mode |= XELT_TERMINAL_PRINT;
 			break;
 		}
 		break;
@@ -1840,27 +1826,27 @@ csihandle(void)
 	case 'C': /* CUF -- Cursor <n> Forward */
 	case 'a': /* HPR -- Cursor <n> Forward */
 		DEFAULT(csiescseq.arg[0], 1);
-		tmoveto(term.c.x+csiescseq.arg[0], term.c.y);
+		tmoveto(terminal.cursor.x+csiescseq.arg[0], terminal.cursor.y);
 		break;
 	case 'D': /* CUB -- Cursor <n> Backward */
 		DEFAULT(csiescseq.arg[0], 1);
-		tmoveto(term.c.x-csiescseq.arg[0], term.c.y);
+		tmoveto(terminal.cursor.x-csiescseq.arg[0], terminal.cursor.y);
 		break;
 	case 'E': /* CNL -- Cursor <n> Down and first col */
 		DEFAULT(csiescseq.arg[0], 1);
-		tmoveto(0, term.c.y+csiescseq.arg[0]);
+		tmoveto(0, terminal.cursor.y+csiescseq.arg[0]);
 		break;
 	case 'F': /* CPL -- Cursor <n> Up and first col */
 		DEFAULT(csiescseq.arg[0], 1);
-		tmoveto(0, term.c.y-csiescseq.arg[0]);
+		tmoveto(0, terminal.cursor.y-csiescseq.arg[0]);
 		break;
 	case 'g': /* TBC -- Tabulation clear */
 		switch (csiescseq.arg[0]) {
 		case 0: /* clear current tab stop */
-			term.tabs[term.c.x] = 0;
+			terminal.tabs[terminal.cursor.x] = 0;
 			break;
 		case 3: /* clear all the tabs */
-			memset(term.tabs, 0, term.col * sizeof(*term.tabs));
+			memset(terminal.tabs, 0, terminal.col * sizeof(*terminal.tabs));
 			break;
 		default:
 			goto unknown;
@@ -1869,7 +1855,7 @@ csihandle(void)
 	case 'G': /* CHA -- Move to <col> */
 	case '`': /* HPA */
 		DEFAULT(csiescseq.arg[0], 1);
-		tmoveto(csiescseq.arg[0]-1, term.c.y);
+		tmoveto(csiescseq.arg[0]-1, terminal.cursor.y);
 		break;
 	case 'H': /* CUP -- Move to <row> <col> */
 	case 'f': /* HVP */
@@ -1885,19 +1871,19 @@ csihandle(void)
 		selclear(NULL);
 		switch (csiescseq.arg[0]) {
 		case 0: /* below */
-			tclearregion(term.c.x, term.c.y, term.col-1, term.c.y);
-			if (term.c.y < term.row-1) {
-				tclearregion(0, term.c.y+1, term.col-1,
-						term.row-1);
+			tclearregion(terminal.cursor.x, terminal.cursor.y, terminal.col-1, terminal.cursor.y);
+			if (terminal.cursor.y < terminal.row-1) {
+				tclearregion(0, terminal.cursor.y+1, terminal.col-1,
+						terminal.row-1);
 			}
 			break;
 		case 1: /* above */
-			if (term.c.y > 1)
-				tclearregion(0, 0, term.col-1, term.c.y-1);
-			tclearregion(0, term.c.y, term.c.x, term.c.y);
+			if (terminal.cursor.y > 1)
+				tclearregion(0, 0, terminal.col-1, terminal.cursor.y-1);
+			tclearregion(0, terminal.cursor.y, terminal.cursor.x, terminal.cursor.y);
 			break;
 		case 2: /* all */
-			tclearregion(0, 0, term.col-1, term.row-1);
+			tclearregion(0, 0, terminal.col-1, terminal.row-1);
 			break;
 		default:
 			goto unknown;
@@ -1906,24 +1892,24 @@ csihandle(void)
 	case 'K': /* EL -- Clear line */
 		switch (csiescseq.arg[0]) {
 		case 0: /* right */
-			tclearregion(term.c.x, term.c.y, term.col-1,
-					term.c.y);
+			tclearregion(terminal.cursor.x, terminal.cursor.y, terminal.col-1,
+					terminal.cursor.y);
 			break;
 		case 1: /* left */
-			tclearregion(0, term.c.y, term.c.x, term.c.y);
+			tclearregion(0, terminal.cursor.y, terminal.cursor.x, terminal.cursor.y);
 			break;
 		case 2: /* all */
-			tclearregion(0, term.c.y, term.col-1, term.c.y);
+			tclearregion(0, terminal.cursor.y, terminal.col-1, terminal.cursor.y);
 			break;
 		}
 		break;
 	case 'S': /* SU -- Scroll <n> line up */
 		DEFAULT(csiescseq.arg[0], 1);
-		tscrollup(term.top, csiescseq.arg[0]);
+		tscrollup(terminal.top, csiescseq.arg[0]);
 		break;
 	case 'T': /* SD -- Scroll <n> line down */
 		DEFAULT(csiescseq.arg[0], 1);
-		tscrolldown(term.top, csiescseq.arg[0]);
+		tscrolldown(terminal.top, csiescseq.arg[0]);
 		break;
 	case 'L': /* IL -- Insert <n> blank lines */
 		DEFAULT(csiescseq.arg[0], 1);
@@ -1938,8 +1924,8 @@ csihandle(void)
 		break;
 	case 'X': /* ECH -- Erase <n> char */
 		DEFAULT(csiescseq.arg[0], 1);
-		tclearregion(term.c.x, term.c.y,
-				term.c.x + csiescseq.arg[0] - 1, term.c.y);
+		tclearregion(terminal.cursor.x, terminal.cursor.y,
+				terminal.cursor.x + csiescseq.arg[0] - 1, terminal.cursor.y);
 		break;
 	case 'P': /* DCH -- Delete <n> char */
 		DEFAULT(csiescseq.arg[0], 1);
@@ -1951,7 +1937,7 @@ csihandle(void)
 		break;
 	case 'd': /* VPA -- Move to <row> */
 		DEFAULT(csiescseq.arg[0], 1);
-		tmoveato(term.c.x, csiescseq.arg[0]-1);
+		tmoveato(terminal.cursor.x, csiescseq.arg[0]-1);
 		break;
 	case 'h': /* SM -- Set terminal mode */
 		tsetmode(csiescseq.priv, 1, csiescseq.arg, csiescseq.narg);
@@ -1962,7 +1948,7 @@ csihandle(void)
 	case 'n': /* DSR – Device Status Report (cursor position) */
 		if (csiescseq.arg[0] == 6) {
 			len = snprintf(buf, sizeof(buf),"\033[%i;%iR",
-					term.c.y+1, term.c.x+1);
+					terminal.cursor.y+1, terminal.cursor.x+1);
 			ttywrite(buf, len);
 		}
 		break;
@@ -1971,7 +1957,7 @@ csihandle(void)
 			goto unknown;
 		} else {
 			DEFAULT(csiescseq.arg[0], 1);
-			DEFAULT(csiescseq.arg[1], term.row);
+			DEFAULT(csiescseq.arg[1], terminal.row);
 			tsetscroll(csiescseq.arg[0]-1, csiescseq.arg[1]-1);
 			tmoveato(0, 0);
 		}
@@ -2034,7 +2020,7 @@ strhandle(void)
 	char *p = NULL;
 	int j, narg, par;
 
-	term.esc &= ~(XELT_ESC_STR_END|XELT_ESC_STR);
+	terminal.esc &= ~(XELT_ESC_STR_END|XELT_ESC_STR);
 	strparse();
 	par = (narg = strescseq.narg) ? atoi(strescseq.args[0]) : 0;
 
@@ -2154,7 +2140,7 @@ tprinter(char *s, size_t len)
 void
 toggleprinter(const xelt_Arg *arg)
 {
-	term.mode ^= XELT_TERMINAL_PRINT;
+	terminal.mode ^= XELT_TERMINAL_PRINT;
 }
 
 void
@@ -2186,8 +2172,8 @@ tdumpline(int n)
 	char buf[XELT_SIZE_UTF];
 	xelt_Glyph *bp, *end;
 
-	bp = &term.line[n][0];
-	end = &bp[MIN(tlinelen(n), term.col) - 1];
+	bp = &terminal.line[n][0];
+	end = &bp[MIN(tlinelen(n), terminal.col) - 1];
 	if (bp != end || bp->u != ' ') {
 		for ( ;bp <= end; ++bp)
 			tprinter(buf, utf8encode(bp->u, buf));
@@ -2200,29 +2186,29 @@ tdump(void)
 {
 	int i;
 
-	for (i = 0; i < term.row; ++i)
+	for (i = 0; i < terminal.row; ++i)
 		tdumpline(i);
 }
 
 void
 tputtab(int n)
 {
-	xelt_uint x = term.c.x;
+	xelt_uint x = terminal.cursor.x;
 
 	if (n > 0) {
-		while (x < term.col && n--)
-			for (++x; x < term.col && !term.tabs[x]; ++x)
+		while (x < terminal.col && n--)
+			for (++x; x < terminal.col && !terminal.tabs[x]; ++x)
 				/* nothing */ ;
 	} else if (n < 0) {
 		while (x > 0 && n++)
-			for (--x; x > 0 && !term.tabs[x]; --x)
+			for (--x; x > 0 && !terminal.tabs[x]; --x)
 				/* nothing */ ;
 	}
-	term.c.x = LIMIT(x, 0, term.col-1);
+	terminal.cursor.x = LIMIT(x, 0, terminal.col-1);
 }
 
 void
-techo(xelt_Rune u)
+techo(xelt_CharCode u)
 {
 	if (ISCONTROL(u)) { /* control code */
 		if (u & 0x80) {
@@ -2247,7 +2233,7 @@ tdeftran(char ascii)
 	if ((p = strchr(cs, ascii)) == NULL) {
 		fprintf(stderr, "esc unhandled charset: ESC ( %c\n", ascii);
 	} else {
-		term.trantbl[term.icharset] = vcs[p - cs];
+		terminal.trantbl[terminal.icharset] = vcs[p - cs];
 	}
 }
 
@@ -2257,9 +2243,9 @@ tdectest(char c)
 	int x, y;
 
 	if (c == '8') { /* DEC screen alignment test. */
-		for (x = 0; x < term.col; ++x) {
-			for (y = 0; y < term.row; ++y)
-				tsetchar('E', &term.c.attr, x, y);
+		for (x = 0; x < terminal.col; ++x) {
+			for (y = 0; y < terminal.row; ++y)
+				tsetchar('E', &terminal.cursor.attr, x, y);
 		}
 	}
 }
@@ -2283,7 +2269,7 @@ tstrsequence(xelt_uchar c)
 	}
 	strreset();
 	strescseq.type = c;
-	term.esc |= XELT_ESC_STR;
+	terminal.esc |= XELT_ESC_STR;
 }
 
 void
@@ -2294,10 +2280,10 @@ tcontrolcode(xelt_uchar ascii)
 		tputtab(1);
 		return;
 	case '\b':   /* BS */
-		tmoveto(term.c.x-1, term.c.y);
+		tmoveto(terminal.cursor.x-1, terminal.cursor.y);
 		return;
 	case '\r':   /* CR */
-		tmoveto(0, term.c.y);
+		tmoveto(0, terminal.cursor.y);
 		return;
 	case '\f':   /* LF */
 	case '\v':   /* VT */
@@ -2306,7 +2292,7 @@ tcontrolcode(xelt_uchar ascii)
 		tnewline(IS_SET(XELT_TERMINAL_CRLF));
 		return;
 	case '\a':   /* BEL */
-		if (term.esc & XELT_ESC_STR_END) {
+		if (terminal.esc & XELT_ESC_STR_END) {
 			/* backwards compatibility to xterm */
 			strhandle();
 		} else {
@@ -2318,15 +2304,15 @@ tcontrolcode(xelt_uchar ascii)
 		break;
 	case '\033': /* ESC */
 		csireset();
-		term.esc &= ~(XELT_ESC_CSI|XELT_ESC_ALTCHARSET|XELT_ESC_TEST);
-		term.esc |= XELT_ESC_START;
+		terminal.esc &= ~(XELT_ESC_CSI|XELT_ESC_ALTCHARSET|XELT_ESC_TEST);
+		terminal.esc |= XELT_ESC_START;
 		return;
 	case '\016': /* SO (LS1 -- Locking shift 1) */
 	case '\017': /* SI (LS0 -- Locking shift 0) */
-		term.charset = 1 - (ascii - '\016');
+		terminal.charset = 1 - (ascii - '\016');
 		return;
 	case '\032': /* SUB */
-		tsetchar('?', &term.c.attr, term.c.x, term.c.y);
+		tsetchar('?', &terminal.cursor.attr, terminal.cursor.x, terminal.cursor.y);
 	case '\030': /* CAN */
 		csireset();
 		break;
@@ -2349,7 +2335,7 @@ tcontrolcode(xelt_uchar ascii)
 	case 0x87:   /* TODO: ESA */
 		break;
 	case 0x88:   /* HTS -- Horizontal tab stop */
-		term.tabs[term.c.x] = 1;
+		terminal.tabs[terminal.cursor.x] = 1;
 		break;
 	case 0x89:   /* TODO: HTJ */
 	case 0x8a:   /* TODO: VTS */
@@ -2382,7 +2368,7 @@ tcontrolcode(xelt_uchar ascii)
 		return;
 	}
 	/* only CAN, SUB, \a and C1 chars interrupt a sequence */
-	term.esc &= ~(XELT_ESC_STR_END|XELT_ESC_STR);
+	terminal.esc &= ~(XELT_ESC_STR_END|XELT_ESC_STR);
 }
 
 /*
@@ -2394,10 +2380,10 @@ eschandle(xelt_uchar ascii)
 {
 	switch (ascii) {
 	case '[':
-		term.esc |= XELT_ESC_CSI;
+		terminal.esc |= XELT_ESC_CSI;
 		return 0;
 	case '#':
-		term.esc |= XELT_ESC_TEST;
+		terminal.esc |= XELT_ESC_TEST;
 		return 0;
 	case 'P': /* DCS -- Device Control String */
 	case '_': /* APC -- Application Program Command */
@@ -2408,33 +2394,33 @@ eschandle(xelt_uchar ascii)
 		return 0;
 	case 'n': /* LS2 -- Locking shift 2 */
 	case 'o': /* LS3 -- Locking shift 3 */
-		term.charset = 2 + (ascii - 'n');
+		terminal.charset = 2 + (ascii - 'n');
 		break;
 	case '(': /* GZD4 -- set primary charset G0 */
 	case ')': /* G1D4 -- set secondary charset G1 */
 	case '*': /* G2D4 -- set tertiary charset G2 */
 	case '+': /* G3D4 -- set quaternary charset G3 */
-		term.icharset = ascii - '(';
-		term.esc |= XELT_ESC_ALTCHARSET;
+		terminal.icharset = ascii - '(';
+		terminal.esc |= XELT_ESC_ALTCHARSET;
 		return 0;
 	case 'D': /* IND -- Linefeed */
-		if (term.c.y == term.bot) {
-			tscrollup(term.top, 1);
+		if (terminal.cursor.y == terminal.bot) {
+			tscrollup(terminal.top, 1);
 		} else {
-			tmoveto(term.c.x, term.c.y+1);
+			tmoveto(terminal.cursor.x, terminal.cursor.y+1);
 		}
 		break;
 	case 'E': /* NEL -- Next line */
 		tnewline(1); /* always go to first col */
 		break;
 	case 'H': /* HTS -- Horizontal tab stop */
-		term.tabs[term.c.x] = 1;
+		terminal.tabs[terminal.cursor.x] = 1;
 		break;
 	case 'M': /* RI -- Reverse index */
-		if (term.c.y == term.top) {
-			tscrolldown(term.top, 1);
+		if (terminal.cursor.y == terminal.top) {
+			tscrolldown(terminal.top, 1);
 		} else {
-			tmoveto(term.c.x, term.c.y-1);
+			tmoveto(terminal.cursor.x, terminal.cursor.y-1);
 		}
 		break;
 	case 'Z': /* DECID -- Identify Terminal */
@@ -2446,10 +2432,10 @@ eschandle(xelt_uchar ascii)
 		xloadcols();
 		break;
 	case '=': /* DECPAM -- Application keypad */
-		term.mode |= XELT_TERMINAL_APPKEYPAD;
+		terminal.mode |= XELT_TERMINAL_APPKEYPAD;
 		break;
 	case '>': /* DECPNM -- Normal keypad */
-		term.mode &= ~XELT_TERMINAL_APPKEYPAD;
+		terminal.mode &= ~XELT_TERMINAL_APPKEYPAD;
 		break;
 	case '7': /* DECSC -- Save Cursor */
 		tcursor(XELT_CURSOR_SAVE);
@@ -2458,7 +2444,7 @@ eschandle(xelt_uchar ascii)
 		tcursor(XELT_CURSOR_LOAD);
 		break;
 	case '\\': /* ST -- String Terminator */
-		if (term.esc & XELT_ESC_STR_END)
+		if (terminal.esc & XELT_ESC_STR_END)
 			strhandle();
 		break;
 	default:
@@ -2470,7 +2456,7 @@ eschandle(xelt_uchar ascii)
 }
 
 void
-tputc(xelt_Rune u)
+tputc(xelt_CharCode u)
 {
 	char c[XELT_SIZE_UTF];
 	int control;
@@ -2493,11 +2479,11 @@ tputc(xelt_Rune u)
 	 * receives a ESC, a SUB, a ST or any other C1 control
 	 * character.
 	 */
-	if (term.esc & XELT_ESC_STR) {
+	if (terminal.esc & XELT_ESC_STR) {
 		if (u == '\a' || u == 030 || u == 032 || u == 033 ||
 		   ISCONTROLC1(u)) {
-			term.esc &= ~(XELT_ESC_START|XELT_ESC_STR);
-			term.esc |= XELT_ESC_STR_END;
+			terminal.esc &= ~(XELT_ESC_START|XELT_ESC_STR);
+			terminal.esc |= XELT_ESC_STR_END;
 		} else if (strescseq.len + len < sizeof(strescseq.buf) - 1) {
 			memmove(&strescseq.buf[strescseq.len], c, len);
 			strescseq.len += len;
@@ -2513,7 +2499,7 @@ tputc(xelt_Rune u)
 		 * In the case users ever get fixed, here is the code:
 		 */
 		/*
-		 * term.esc = 0;
+		 * terminal.esc = 0;
 		 * strhandle();
 		 */
 			return;
@@ -2531,64 +2517,64 @@ tputc(xelt_Rune u)
 		 * control codes are not shown ever
 		 */
 		return;
-	} else if (term.esc & XELT_ESC_START) {
-		if (term.esc & XELT_ESC_CSI) {
+	} else if (terminal.esc & XELT_ESC_START) {
+		if (terminal.esc & XELT_ESC_CSI) {
 			csiescseq.buf[csiescseq.len++] = u;
 			if (BETWEEN(u, 0x40, 0x7E)
 					|| csiescseq.len >= \
 					sizeof(csiescseq.buf)-1) {
-				term.esc = 0;
+				terminal.esc = 0;
 				csiparse();
 				csihandle();
 			}
 			return;
-		} else if (term.esc & XELT_ESC_ALTCHARSET) {
+		} else if (terminal.esc & XELT_ESC_ALTCHARSET) {
 			tdeftran(u);
-		} else if (term.esc & XELT_ESC_TEST) {
+		} else if (terminal.esc & XELT_ESC_TEST) {
 			tdectest(u);
 		} else {
 			if (!eschandle(u))
 				return;
 			/* sequence already finished */
 		}
-		term.esc = 0;
+		terminal.esc = 0;
 		/*
 		 * All characters which form part of a sequence are not
 		 * printed
 		 */
 		return;
 	}
-	if (sel.ob.x != -1 && BETWEEN(term.c.y, sel.ob.y, sel.oe.y))
+	if (sel.ob.x != -1 && BETWEEN(terminal.cursor.y, sel.ob.y, sel.oe.y))
 		selclear(NULL);
 
-	gp = &term.line[term.c.y][term.c.x];
-	if (IS_SET(XELT_TERMINAL_WRAP) && (term.c.state & XELT_CURSOR_WRAPNEXT)) {
+	gp = &terminal.line[terminal.cursor.y][terminal.cursor.x];
+	if (IS_SET(XELT_TERMINAL_WRAP) && (terminal.cursor.state & XELT_CURSOR_WRAPNEXT)) {
 		gp->mode |= XELT_ATTR_WRAP;
 		tnewline(1);
-		gp = &term.line[term.c.y][term.c.x];
+		gp = &terminal.line[terminal.cursor.y][terminal.cursor.x];
 	}
 
-	if (IS_SET(XELT_TERMINAL_INSERT) && term.c.x+width < term.col)
-		memmove(gp+width, gp, (term.col - term.c.x - width) * sizeof(xelt_Glyph));
+	if (IS_SET(XELT_TERMINAL_INSERT) && terminal.cursor.x+width < terminal.col)
+		memmove(gp+width, gp, (terminal.col - terminal.cursor.x - width) * sizeof(xelt_Glyph));
 
-	if (term.c.x+width > term.col) {
+	if (terminal.cursor.x+width > terminal.col) {
 		tnewline(1);
-		gp = &term.line[term.c.y][term.c.x];
+		gp = &terminal.line[terminal.cursor.y][terminal.cursor.x];
 	}
 
-	tsetchar(u, &term.c.attr, term.c.x, term.c.y);
+	tsetchar(u, &terminal.cursor.attr, terminal.cursor.x, terminal.cursor.y);
 
 	if (width == 2) {
 		gp->mode |= XELT_ATTR_WIDE;
-		if (term.c.x+1 < term.col) {
+		if (terminal.cursor.x+1 < terminal.col) {
 			gp[1].u = '\0';
 			gp[1].mode = XELT_ATTR_WDUMMY;
 		}
 	}
-	if (term.c.x+width < term.col) {
-		tmoveto(term.c.x+width, term.c.y);
+	if (terminal.cursor.x+width < terminal.col) {
+		tmoveto(terminal.cursor.x+width, terminal.cursor.y);
 	} else {
-		term.c.state |= XELT_CURSOR_WRAPNEXT;
+		terminal.cursor.state |= XELT_CURSOR_WRAPNEXT;
 	}
 }
 
@@ -2596,8 +2582,8 @@ void
 tresize(int col, int row)
 {
 	int i;
-	int minrow = MIN(row, term.row);
-	int mincol = MIN(col, term.col);
+	int minrow = MIN(row, terminal.row);
+	int mincol = MIN(col, terminal.col);
 	int *bp;
 	xelt_TCursor c;
 
@@ -2612,58 +2598,58 @@ tresize(int col, int row)
 	 * tscrollup would work here, but we can optimize to
 	 * memmove because we're freeing the earlier lines
 	 */
-	for (i = 0; i <= term.c.y - row; i++) {
-		free(term.line[i]);
-		free(term.alt[i]);
+	for (i = 0; i <= terminal.cursor.y - row; i++) {
+		free(terminal.line[i]);
+		free(terminal.alt[i]);
 	}
 	/* ensure that both src and dst are not NULL */
 	if (i > 0) {
-		memmove(term.line, term.line + i, row * sizeof(xelt_Line));
-		memmove(term.alt, term.alt + i, row * sizeof(xelt_Line));
+		memmove(terminal.line, terminal.line + i, row * sizeof(xelt_Line));
+		memmove(terminal.alt, terminal.alt + i, row * sizeof(xelt_Line));
 	}
-	for (i += row; i < term.row; i++) {
-		free(term.line[i]);
-		free(term.alt[i]);
+	for (i += row; i < terminal.row; i++) {
+		free(terminal.line[i]);
+		free(terminal.alt[i]);
 	}
 
 	/* resize to new width */
-	term.specbuf = xrealloc(term.specbuf, col * sizeof(XftGlyphFontSpec));
+	terminal.specbuf = xrealloc(terminal.specbuf, col * sizeof(XftGlyphFontSpec));
 
 	/* resize to new height */
-	term.line = xrealloc(term.line, row * sizeof(xelt_Line));
-	term.alt  = xrealloc(term.alt,  row * sizeof(xelt_Line));
-	term.dirty = xrealloc(term.dirty, row * sizeof(*term.dirty));
-	term.tabs = xrealloc(term.tabs, col * sizeof(*term.tabs));
+	terminal.line = xrealloc(terminal.line, row * sizeof(xelt_Line));
+	terminal.alt  = xrealloc(terminal.alt,  row * sizeof(xelt_Line));
+	terminal.dirty = xrealloc(terminal.dirty, row * sizeof(*terminal.dirty));
+	terminal.tabs = xrealloc(terminal.tabs, col * sizeof(*terminal.tabs));
 
 	/* resize each row to new width, zero-pad if needed */
 	for (i = 0; i < minrow; i++) {
-		term.line[i] = xrealloc(term.line[i], col * sizeof(xelt_Glyph));
-		term.alt[i]  = xrealloc(term.alt[i],  col * sizeof(xelt_Glyph));
+		terminal.line[i] = xrealloc(terminal.line[i], col * sizeof(xelt_Glyph));
+		terminal.alt[i]  = xrealloc(terminal.alt[i],  col * sizeof(xelt_Glyph));
 	}
 
 	/* allocate any new rows */
 	for (/* i == minrow */; i < row; i++) {
-		term.line[i] = xmalloc(col * sizeof(xelt_Glyph));
-		term.alt[i] = xmalloc(col * sizeof(xelt_Glyph));
+		terminal.line[i] = xmalloc(col * sizeof(xelt_Glyph));
+		terminal.alt[i] = xmalloc(col * sizeof(xelt_Glyph));
 	}
-	if (col > term.col) {
-		bp = term.tabs + term.col;
+	if (col > terminal.col) {
+		bp = terminal.tabs + terminal.col;
 
-		memset(bp, 0, sizeof(*term.tabs) * (col - term.col));
-		while (--bp > term.tabs && !*bp)
+		memset(bp, 0, sizeof(*terminal.tabs) * (col - terminal.col));
+		while (--bp > terminal.tabs && !*bp)
 			/* nothing */ ;
-		for (bp += tabspaces; bp < term.tabs + col; bp += tabspaces)
+		for (bp += tabspaces; bp < terminal.tabs + col; bp += tabspaces)
 			*bp = 1;
 	}
 	/* update terminal size */
-	term.col = col;
-	term.row = row;
+	terminal.col = col;
+	terminal.row = row;
 	/* reset scrolling region */
 	tsetscroll(0, row-1);
 	/* make use of the LIMIT in tmoveto */
-	tmoveto(term.c.x, term.c.y);
+	tmoveto(terminal.cursor.x, terminal.cursor.y);
 	/* Clearing both screens (it makes dirty all lines) */
-	c = term.c;
+	c = terminal.cursor;
 	for (i = 0; i < 2; i++) {
 		if (mincol < col && 0 < minrow) {
 			tclearregion(mincol, 0, col - 1, minrow - 1);
@@ -2674,7 +2660,7 @@ tresize(int col, int row)
 		tswapscreen();
 		tcursor(XELT_CURSOR_LOAD);
 	}
-	term.c = c;
+	terminal.cursor = c;
 }
 
 void
@@ -3046,8 +3032,8 @@ xinit(void)
 	xloadcols();
 
 	/* adjust fixed window geometry */
-	xelt_windowmain.width = 2 * borderpx + term.col * xelt_windowmain.charwidth;
-	xelt_windowmain.height = 2 * borderpx + term.row * xelt_windowmain.charheight;
+	xelt_windowmain.width = 2 * borderpx + terminal.col * xelt_windowmain.charwidth;
+	xelt_windowmain.height = 2 * borderpx + terminal.row * xelt_windowmain.charheight;
 	if (xelt_windowmain.gmask & XNegative)
 		xelt_windowmain.left += DisplayWidth(xelt_windowmain.display, xelt_windowmain.scr) - xelt_windowmain.width - 2;
 	if (xelt_windowmain.gmask & YNegative)
@@ -3083,6 +3069,7 @@ xinit(void)
 	xelt_windowmain.draw = XftDrawCreate(xelt_windowmain.display, xelt_windowmain.drawbuf, xelt_windowmain.vis, xelt_windowmain.colormap);
 
 	/* input methods */
+	// open input method information
 	if ((xelt_windowmain.inputmethod = XOpenIM(xelt_windowmain.display, NULL, NULL, NULL)) == NULL) {
 		XSetLocaleModifiers("@im=local");
 		if ((xelt_windowmain.inputmethod =  XOpenIM(xelt_windowmain.display, NULL, NULL, NULL)) == NULL) {
@@ -3144,7 +3131,7 @@ xmakeglyphfontspecs(XftGlyphFontSpec *specs, const xelt_Glyph *glyphs, int len, 
 	xelt_Font *font = &dc.font;
 	int frcflags = XELT_FONTCACHE_NORMAL;
 	float runewidth = xelt_windowmain.charwidth;
-	xelt_Rune rune;
+	xelt_CharCode rune;
 	FT_UInt glyphidx;
 	FcResult fcres;
 	FcPattern *fcpattern, *fontpattern;
@@ -3354,7 +3341,7 @@ xdrawglyphfontspecs(const XftGlyphFontSpec *specs, xelt_Glyph base, int len, int
 		fg = &revfg;
 	}
 
-	if (base.mode & XELT_ATTR_BLINK && term.mode & XELT_TERMINAL_BLINK)
+	if (base.mode & XELT_ATTR_BLINK && terminal.mode & XELT_TERMINAL_BLINK)
 		fg = bg;
 
 	if (base.mode & XELT_ATTR_INVISIBLE)
@@ -3363,15 +3350,15 @@ xdrawglyphfontspecs(const XftGlyphFontSpec *specs, xelt_Glyph base, int len, int
 	/* Intelligent cleaning up of the borders. */
 	if (x == 0) {
 		xclear(0, (y == 0)? 0 : winy, borderpx,
-			winy + xelt_windowmain.charheight + ((y >= term.row-1)? xelt_windowmain.height : 0));
+			winy + xelt_windowmain.charheight + ((y >= terminal.row-1)? xelt_windowmain.height : 0));
 	}
-	if (x + charlen >= term.col) {
+	if (x + charlen >= terminal.col) {
 		xclear(winx + width, (y == 0)? 0 : winy, xelt_windowmain.width,
-			((y >= term.row-1)? xelt_windowmain.height : (winy + xelt_windowmain.charheight)));
+			((y >= terminal.row-1)? xelt_windowmain.height : (winy + xelt_windowmain.charheight)));
 	}
 	if (y == 0)
 		xclear(winx, 0, winx + width, borderpx);
-	if (y == term.row-1)
+	if (y == terminal.row-1)
 		xclear(winx, winy + xelt_windowmain.charheight, winx + width, xelt_windowmain.height);
 
 	/* Clean up the region we want to draw to. */
@@ -3421,24 +3408,24 @@ xdrawcursor(void)
 	int ena_sel = sel.ob.x != -1 && sel.alt == IS_SET(XELT_TERMINAL_ALTSCREEN);
 	xelt_Color drawcol;
 
-	LIMIT(oldx, 0, term.col-1);
-	LIMIT(oldy, 0, term.row-1);
+	LIMIT(oldx, 0, terminal.col-1);
+	LIMIT(oldy, 0, terminal.row-1);
 
-	curx = term.c.x;
+	curx = terminal.cursor.x;
 
 	/* adjust position if in dummy */
-	if (term.line[oldy][oldx].mode & XELT_ATTR_WDUMMY)
+	if (terminal.line[oldy][oldx].mode & XELT_ATTR_WDUMMY)
 		oldx--;
-	if (term.line[term.c.y][curx].mode & XELT_ATTR_WDUMMY)
+	if (terminal.line[terminal.cursor.y][curx].mode & XELT_ATTR_WDUMMY)
 		curx--;
 
 	/* remove the old cursor */
-	og = term.line[oldy][oldx];
+	og = terminal.line[oldy][oldx];
 	if (ena_sel && selected(oldx, oldy))
 		og.mode ^= XELT_ATTR_REVERSE;
 	xdrawglyph(og, oldx, oldy);
 
-	g.u = term.line[term.c.y][term.c.x].u;
+	g.u = terminal.line[terminal.cursor.y][terminal.cursor.x].u;
 
 	/*
 	 * Select the right color for the right mode.
@@ -3446,7 +3433,7 @@ xdrawcursor(void)
 	if (IS_SET(XELT_TERMINAL_REVERSE)) {
 		g.mode |= XELT_ATTR_REVERSE;
 		g.bg = defaultfg;
-		if (ena_sel && selected(term.c.x, term.c.y)) {
+		if (ena_sel && selected(terminal.cursor.x, terminal.cursor.y)) {
 			drawcol = dc.col[defaultcs];
 			g.fg = defaultrcs;
 		} else {
@@ -3454,7 +3441,7 @@ xdrawcursor(void)
 			g.fg = defaultcs;
 		}
 	} else {
-		if (ena_sel && selected(term.c.x, term.c.y)) {
+		if (ena_sel && selected(terminal.cursor.x, terminal.cursor.y)) {
 			drawcol = dc.col[defaultrcs];
 			g.fg = defaultfg;
 			g.bg = defaultrcs;
@@ -3474,14 +3461,14 @@ xdrawcursor(void)
 		case 0: /* Blinking Block */
 		case 1: /* Blinking Block (Default) */
 		case 2: /* Steady Block */
-			g.mode |= term.line[term.c.y][curx].mode & XELT_ATTR_WIDE;
-			xdrawglyph(g, term.c.x, term.c.y);
+			g.mode |= terminal.line[terminal.cursor.y][curx].mode & XELT_ATTR_WIDE;
+			xdrawglyph(g, terminal.cursor.x, terminal.cursor.y);
 			break;
 		case 3: /* Blinking Underline */
 		case 4: /* Steady Underline */
 			XftDrawRect(xelt_windowmain.draw, &drawcol,
 					borderpx + curx * xelt_windowmain.charwidth,
-					borderpx + (term.c.y + 1) * xelt_windowmain.charheight - \
+					borderpx + (terminal.cursor.y + 1) * xelt_windowmain.charheight - \
 						cursorthickness,
 					xelt_windowmain.charwidth, cursorthickness);
 			break;
@@ -3489,29 +3476,29 @@ xdrawcursor(void)
 		case 6: /* Steady bar */
 			XftDrawRect(xelt_windowmain.draw, &drawcol,
 					borderpx + curx * xelt_windowmain.charwidth,
-					borderpx + term.c.y * xelt_windowmain.charheight,
+					borderpx + terminal.cursor.y * xelt_windowmain.charheight,
 					cursorthickness, xelt_windowmain.charheight);
 			break;
 		}
 	} else {
 		XftDrawRect(xelt_windowmain.draw, &drawcol,
 				borderpx + curx * xelt_windowmain.charwidth,
-				borderpx + term.c.y * xelt_windowmain.charheight,
+				borderpx + terminal.cursor.y * xelt_windowmain.charheight,
 				xelt_windowmain.charwidth - 1, 1);
 		XftDrawRect(xelt_windowmain.draw, &drawcol,
 				borderpx + curx * xelt_windowmain.charwidth,
-				borderpx + term.c.y * xelt_windowmain.charheight,
+				borderpx + terminal.cursor.y * xelt_windowmain.charheight,
 				1, xelt_windowmain.charheight - 1);
 		XftDrawRect(xelt_windowmain.draw, &drawcol,
 				borderpx + (curx + 1) * xelt_windowmain.charwidth - 1,
-				borderpx + term.c.y * xelt_windowmain.charheight,
+				borderpx + terminal.cursor.y * xelt_windowmain.charheight,
 				1, xelt_windowmain.charheight - 1);
 		XftDrawRect(xelt_windowmain.draw, &drawcol,
 				borderpx + curx * xelt_windowmain.charwidth,
-				borderpx + (term.c.y + 1) * xelt_windowmain.charheight - 1,
+				borderpx + (terminal.cursor.y + 1) * xelt_windowmain.charheight - 1,
 				xelt_windowmain.charwidth, 1);
 	}
-	oldx = curx, oldy = term.c.y;
+	oldx = curx, oldy = terminal.cursor.y;
 }
 
 
@@ -3543,7 +3530,7 @@ redraw(void)
 void
 draw(void)
 {
-	drawregion(0, 0, term.col, term.row);
+	drawregion(0, 0, terminal.col, terminal.row);
 	XCopyArea(xelt_windowmain.display, xelt_windowmain.drawbuf, xelt_windowmain.win, dc.gc, 0, 0, xelt_windowmain.width,
 			xelt_windowmain.height, 0, 0);
 	XSetForeground(xelt_windowmain.display, dc.gc,
@@ -3563,17 +3550,17 @@ drawregion(int x1, int y1, int x2, int y2)
 		return;
 
 	for (y = y1; y < y2; y++) {
-		if (!term.dirty[y])
+		if (!terminal.dirty[y])
 			continue;
 
-		term.dirty[y] = 0;
+		terminal.dirty[y] = 0;
 
-		specs = term.specbuf;
-		numspecs = xmakeglyphfontspecs(specs, &term.line[y][x1], x2 - x1, x1, y);
+		specs = terminal.specbuf;
+		numspecs = xmakeglyphfontspecs(specs, &terminal.line[y][x1], x2 - x1, x1, y);
 
 		i = ox = 0;
 		for (x = x1; x < x2 && i < numspecs; x++) {
-			new = term.line[y][x];
+			new = terminal.line[y][x];
 			if (new.mode == XELT_ATTR_WDUMMY)
 				continue;
 			if (ena_sel && selected(x, y))
@@ -3664,7 +3651,7 @@ match(xelt_uint mask, xelt_uint state)
 void
 numlock(const xelt_Arg *dummy)
 {
-	term.numlock ^= 1;
+	terminal.numlock ^= 1;
 }
 
 char*
@@ -3692,7 +3679,7 @@ kmap(KeySym k, xelt_uint state)
 
 		if (IS_SET(XELT_TERMINAL_APPKEYPAD) ? kp->appkey < 0 : kp->appkey > 0)
 			continue;
-		if (term.numlock && kp->appkey == 2)
+		if (terminal.numlock && kp->appkey == 2)
 			continue;
 
 		if (IS_SET(XELT_TERMINAL_APPCURSOR) ? kp->appcursor < 0 : kp->appcursor > 0)
@@ -3714,7 +3701,7 @@ kpress(XEvent *ev)
 	KeySym ksym;
 	char buf[32], *customkey;
 	int len;
-	xelt_Rune c;
+	xelt_CharCode c;
 	Status status;
 	xelt_Shortcut *bp;
 
@@ -3841,9 +3828,9 @@ run(void)
 {
 	XEvent ev;
 	int w = xelt_windowmain.width, h = xelt_windowmain.height;
-	fd_set rfd;
-	int xfd = XConnectionNumber(xelt_windowmain.display), xev, blinkset = 0, dodraw = 0;
-	struct timespec drawtimeout, *tv = NULL, now, last, lastblink;
+	fd_set rfd;  //add rfd file descriptor to monitor it.
+	int xfd = XConnectionNumber(xelt_windowmain.display);
+	int xev, blinkset = 0, dodraw = 0;
 	long deltatime;
 
 	/* Waiting for window mapping */
@@ -3861,14 +3848,12 @@ run(void)
 			h = ev.xconfigure.height;
 		}
 	} while (ev.type != MapNotify);
-
 	cresize(w, h);
 	ttynew();
 	ttyresize();
 
 	clock_gettime(CLOCK_MONOTONIC, &last);
-	lastblink = last;
-
+	
 	for (xev = actionfps;;) {
 		FD_ZERO(&rfd);
 		FD_SET(cmdfd, &rfd);
@@ -3884,7 +3869,7 @@ run(void)
 			if (blinktimeout) {
 				blinkset = tattrset(XELT_ATTR_BLINK);
 				if (!blinkset)
-					MODBIT(term.mode, 0, XELT_TERMINAL_BLINK);
+					MODBIT(terminal.mode, 0, XELT_TERMINAL_BLINK);
 			}
 		}
 
@@ -3897,12 +3882,7 @@ run(void)
 		tv = &drawtimeout;
 
 		dodraw = 0;
-		if (blinktimeout && TIMEDIFF(now, lastblink) > blinktimeout) {
-			tsetdirtattr(XELT_ATTR_BLINK);
-			term.mode ^= XELT_TERMINAL_BLINK;
-			lastblink = now;
-			dodraw = 1;
-		}
+		
 		deltatime = TIMEDIFF(now, last);
 		if (deltatime > 1000 / (xev ? xfps : actionfps)) {
 			dodraw = 1;
@@ -3919,27 +3899,12 @@ run(void)
 			}
 
 			draw();
-			XFlush(xelt_windowmain.display);
+			XFlush(xelt_windowmain.display);//flushes the output buffer
 
 			if (xev && !FD_ISSET(xfd, &rfd))
 				xev--;
 			if (!FD_ISSET(cmdfd, &rfd) && !FD_ISSET(xfd, &rfd)) {
-				if (blinkset) {
-					if (TIMEDIFF(now, lastblink) \
-							> blinktimeout) {
-						drawtimeout.tv_nsec = 1000;
-					} else {
-						drawtimeout.tv_nsec = (1E6 * \
-							(blinktimeout - \
-							TIMEDIFF(now,
-								lastblink)));
-					}
-					drawtimeout.tv_sec = \
-					    drawtimeout.tv_nsec / 1E9;
-					drawtimeout.tv_nsec %= (long)1E9;
-				} else {
-					tv = NULL;
-				}
+				tv = NULL;
 			}
 		}
 	}
@@ -3957,9 +3922,8 @@ main(int argc, char *argv[])
 
 	window_title = basename(xstrdup(argv[0]));
 	setlocale(LC_CTYPE, "");
-	XSetLocaleModifiers("");
-	printf("MAX(LEN(colorname), 256)=%zu \n",(MAX(LEN(colorname), 256)) );
-	tnew(MAX(cols, 1), MAX(rows, 1));
+	XSetLocaleModifiers("");//determine locale support and configure locale modifiers
+	tnew(MAX(cols, 1), MAX(rows, 1)); // create new xelt_Terminal Screen and store it in terminal global var
 	xinit();
 	selinit();
 	run();

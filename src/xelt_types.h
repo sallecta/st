@@ -6,7 +6,7 @@ typedef unsigned int xelt_uint;
 typedef unsigned long xelt_ulong;
 typedef unsigned short xelt_ushort;
 
-typedef uint_least32_t xelt_Rune;
+typedef uint_least32_t xelt_CharCode;
 
 // X11
 #include <X11/Xlib.h>
@@ -52,7 +52,7 @@ typedef struct {
 typedef XftColor xelt_Color;
 
 typedef struct {
-	xelt_Rune u;           /* character code */
+	xelt_CharCode u;           /* character code */
 	xelt_ushort mode;      /* attribute flags */
 	uint32_t fg;      /* foreground  */
 	uint32_t bg;      /* background  */
@@ -101,7 +101,7 @@ typedef struct {
 	xelt_Line *alt;    /* alternate screen */
 	int *dirty;  /* dirtyness of lines */
 	XftGlyphFontSpec *specbuf; /* font spec buffer used for rendering */
-	xelt_TCursor c;    /* cursor */
+	xelt_TCursor cursor;    /* cursor */
 	int top;      /* top    scroll limit */
 	int bot;      /* bottom scroll limit */
 	int mode;     /* terminal mode flags */
@@ -111,7 +111,7 @@ typedef struct {
 	int icharset; /* selected charset for sequence */
 	int numlock; /* lock numbers in keyboard */
 	int *tabs;
-} xelt_TerminalScreen;
+} xelt_Terminal;
 
 
 /* Purely graphic info */
@@ -172,7 +172,13 @@ typedef struct {
 typedef struct {
 	XftFont *font;
 	int flags;
-	xelt_Rune unicodep;
+	xelt_CharCode unicodep;
 } xelt_Fontcache;
 
-
+/* 
+for reference only
+typedef struct {
+	time_t tv_sec ;
+	long tv_nsec;
+} timespec;
+ */
