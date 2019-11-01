@@ -2,7 +2,6 @@ enum
 {
 	
     // glyph_attribute 
-	XELT_ATTR_BLINK      = 1 << 4,
 	XELT_ATTR_BOLD       = 1 << 0,
 	XELT_ATTR_FAINT      = 1 << 1,
 	XELT_ATTR_INVISIBLE  = 1 << 6,
@@ -30,7 +29,6 @@ enum
 	XELT_TERMINAL_ALTSCREEN   = 1 << 3,
 	XELT_TERMINAL_APPCURSOR   = 1 << 11,
 	XELT_TERMINAL_APPKEYPAD   = 1 << 2,
-	XELT_TERMINAL_BLINK       = 1 << 14,
 	XELT_TERMINAL_BRCKTPASTE  = 1 << 19,
 	XELT_TERMINAL_CRLF        = 1 << 4,
 	XELT_TERMINAL_ECHO        = 1 << 10,

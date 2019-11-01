@@ -1126,21 +1126,6 @@ ttyresize(void)
 		fprintf(stderr, "Couldn't set window size: %s\n", strerror(errno));
 }
 
-int
-tattrset(int attr)
-{
-	int i, j;
-
-	for (i = 0; i < terminal.row-1; i++) {
-		for (j = 0; j < terminal.col-1; j++) {
-			if (terminal.line[i][j].mode & attr)
-				return 1;
-		}
-	}
-
-	return 0;
-}
-
 void
 tsetdirt(int top, int bot)
 {
@@ -1538,7 +1523,6 @@ tsetattr(int *attr, int l)
 				XELT_ATTR_FAINT      |
 				XELT_ATTR_ITALIC     |
 				XELT_ATTR_UNDERLINE  |
-				XELT_ATTR_BLINK      |
 				XELT_ATTR_REVERSE    |
 				XELT_ATTR_INVISIBLE  |
 				XELT_ATTR_STRUCK     );
@@ -1557,11 +1541,6 @@ tsetattr(int *attr, int l)
 		case 4:
 			terminal.cursor.attr.mode |= XELT_ATTR_UNDERLINE;
 			break;
-		case 5: /* slow blink */
-			/* FALLTHROUGH */
-		case 6: /* rapid blink */
-			terminal.cursor.attr.mode |= XELT_ATTR_BLINK;
-			break;
 		case 7:
 			terminal.cursor.attr.mode |= XELT_ATTR_REVERSE;
 			break;
@@ -1579,9 +1558,6 @@ tsetattr(int *attr, int l)
 			break;
 		case 24:
 			terminal.cursor.attr.mode &= ~XELT_ATTR_UNDERLINE;
-			break;
-		case 25:
-			terminal.cursor.attr.mode &= ~XELT_ATTR_BLINK;
 			break;
 		case 27:
 			terminal.cursor.attr.mode &= ~XELT_ATTR_REVERSE;
@@ -3341,9 +3317,6 @@ xdrawglyphfontspecs(const XftGlyphFontSpec *specs, xelt_Glyph base, int len, int
 		fg = &revfg;
 	}
 
-	if (base.mode & XELT_ATTR_BLINK && terminal.mode & XELT_TERMINAL_BLINK)
-		fg = bg;
-
 	if (base.mode & XELT_ATTR_INVISIBLE)
 		fg = bg;
 
@@ -3830,7 +3803,7 @@ run(void)
 	int w = xelt_windowmain.width, h = xelt_windowmain.height;
 	fd_set rfd;  //add rfd file descriptor to monitor it.
 	int xfd = XConnectionNumber(xelt_windowmain.display);
-	int xev, blinkset = 0, dodraw = 0;
+	int xev, dodraw = 0;
 	long deltatime;
 
 	/* Waiting for window mapping */
@@ -3866,11 +3839,6 @@ run(void)
 		}
 		if (FD_ISSET(cmdfd, &rfd)) {
 			ttyread();
-			if (blinktimeout) {
-				blinkset = tattrset(XELT_ATTR_BLINK);
-				if (!blinkset)
-					MODBIT(terminal.mode, 0, XELT_TERMINAL_BLINK);
-			}
 		}
 
 		if (FD_ISSET(xfd, &rfd))

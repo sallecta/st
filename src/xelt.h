@@ -45,7 +45,6 @@ static void strhandle(void);
 static void strparse(void);
 static void strreset(void);
 
-static int tattrset(int);
 static void tprinter(char *, size_t);
 static void tdumpsel(void);
 static void tdumpline(int);
