@@ -58,8 +58,8 @@ static void (*handler[LASTEvent])(XEvent *) = {
 	[FocusIn] = focus,
 	[FocusOut] = focus,
 	[MotionNotify] = bmotion,
-	[ButtonPress] = bpress,
-	[ButtonRelease] = brelease,
+	[ButtonPress] = ev_btn_press,
+	[ButtonRelease] = ev_btn_release,
 /*
  * Uncomment if you want the selection to disappear when you select something
  * different in another window.
@@ -154,8 +154,7 @@ xstrdup(char *s)
 	return s;
 }
 
-size_t
-utf8decode(char *c, xelt_CharCode *u, size_t clen)
+size_t utf8decode(char *c, xelt_CharCode *u, size_t clen)
 {
 	size_t i, j, len, type;
 	xelt_CharCode udecoded;
@@ -425,8 +424,7 @@ getbuttoninfo(XEvent *e)
 	}
 }
 
-void
-mousereport(XEvent *e)
+void mousereport(XEvent *e)
 {
 	int x = x2col(e->xbutton.x), y = y2row(e->xbutton.y),
 	    button = e->xbutton.button, state = e->xbutton.state,
@@ -451,7 +449,7 @@ mousereport(XEvent *e)
 		if (!IS_SET(XELT_TERMINAL_MOUSESGR) && e->xbutton.type == ButtonRelease) {
 			button = 3;
 		} else {
-			button -= Button1;
+			button -= XELT_MOUSSE_LEFT;
 			if (button >= 3)
 				button += 64 - 3;
 		}
@@ -486,12 +484,22 @@ mousereport(XEvent *e)
 		return;
 	}
 
-	ttywrite(buf, len);
+	ttywrite1(buf, len);
 }
 
-void
-bpress(XEvent *e)
+void ev_btn_press(XEvent *e)
 {
+	char *me="ev_btn_press";
+
+	if (e->xbutton.button == XELT_MOUSSE_LEFT) {
+				xelt_log(me,"pressed XELT_MOUSSE_LEFT");
+	}	else if (e->xbutton.button == XELT_MOUSSE_MIDDLE) {
+		xelt_log(me,"pressed XELT_MOUSSE_MIDDLE");
+	}	else if (e->xbutton.button == XELT_MOUSSE_RIGHT) {
+		xelt_log(me,"pressed XELT_MOUSSE_RIGHT");
+	}
+	
+	
 	struct timespec now;
 	xelt_MouseShortcut *ms;
 
@@ -503,12 +511,12 @@ bpress(XEvent *e)
 	for (ms = mshortcuts; ms < mshortcuts + LEN(mshortcuts); ms++) {
 		if (e->xbutton.button == ms->b
 				&& match(ms->mask, e->xbutton.state)) {
-			ttysend(ms->s, strlen(ms->s));
+			ttywrite1(ms->s, strlen(ms->s));
 			return;
 		}
 	}
 
-	if (e->xbutton.button == Button1) {
+	if (e->xbutton.button == XELT_MOUSSE_LEFT) {
 		clock_gettime(CLOCK_MONOTONIC, &now);
 
 		/* Clear previous selection, logically and visually. */
@@ -539,8 +547,7 @@ bpress(XEvent *e)
 	}
 }
 
-char *
-getsel(void)
+char *getsel(void)
 {
 	char *str, *ptr;
 	int y, bufsize, lastx, linelen;
@@ -686,10 +693,10 @@ selnotify(XEvent *e)
 		}
 
 		if (IS_SET(XELT_TERMINAL_BRCKTPASTE) && ofs == 0)
-			ttywrite("\033[200~", 6);
-		ttysend((char *)data, nitems * format / 8);
+			ttywrite1("\033[200~", 6);
+		ttywrite1((char *)data, nitems * format / 8);
 		if (IS_SET(XELT_TERMINAL_BRCKTPASTE) && rem == 0)
-			ttywrite("\033[201~", 6);
+			ttywrite1("\033[201~", 6);
 		XFree(data);
 		/* number of 32-bit chunks returned */
 		ofs += nitems * format / 32;
@@ -814,16 +821,18 @@ xsetsel(char *str, Time t)
 }
 
 void
-brelease(XEvent *e)
+ev_btn_release(XEvent *e)
 {
+	char *me="ev_btn_release";
+	xelt_log(me,"started");
 	if (IS_SET(XELT_TERMINAL_MOUSE) && !(e->xbutton.state & forceselmod)) {
 		mousereport(e);
 		return;
 	}
 
-	if (e->xbutton.button == Button2) {
+	if (e->xbutton.button == XELT_MOUSSE_MIDDLE) {
 		selpaste(NULL);
-	} else if (e->xbutton.button == Button1) {
+	} else if (e->xbutton.button == XELT_MOUSSE_LEFT) {
 		if (sel.mode == XELT_SEL_READY) {
 			getbuttoninfo(e);
 			selcopy(e->xbutton.time);
@@ -1051,20 +1060,24 @@ ttyread(void)
 	return ret;
 }
 
-void
-ttywrite(const char *s, size_t n)
+void ttywrite1(const char *argS, size_t argN)
 {
+	char *me="ttywrite1";
+	xelt_log(me,"started");
+	snprintf(charbuf256, 256, "%s%s", "sending argS: ", argS);
+	xelt_log(me,charbuf256);
+	
 	fd_set wfd, rfd;
 	ssize_t r;
 	size_t lim = 256;
 
 	/*
 	 * Remember that we are using a pty, which might be a modem line.
-	 * Writing too much will clog the line. That's why we are doing this
+	 * Writing too much will clog the line. That'argS why we are doing this
 	 * dance.
 	 * FIXME: Migrate the world to Plan 9.
 	 */
-	while (n > 0) {
+	while (argN > 0) {
 		FD_ZERO(&wfd);
 		FD_ZERO(&rfd);
 		FD_SET(cmdfd, &wfd);
@@ -1072,28 +1085,26 @@ ttywrite(const char *s, size_t n)
 
 		/* Check if we can write. */
 		if (pselect(cmdfd+1, &rfd, &wfd, NULL, NULL, NULL) < 0) {
-			if (errno == EINTR)
-				continue;
-			printAndExit("select failed: %s\n", strerror(errno));
+			printAndExit("select failed: %argS\argN", strerror(errno));
 		}
 		if (FD_ISSET(cmdfd, &wfd)) {
 			/*
-			 * Only write the bytes written by ttywrite() or the
+			 * Only write the bytes written by ttywrite1() or the
 			 * default of 256. This seems to be a reasonable value
 			 * for a serial line. Bigger values might clog the I/O.
 			 */
-			if ((r = write(cmdfd, s, (n < lim)? n : lim)) < 0)
-				goto write_error;
-			if (r < n) {
+			if ((r = write(cmdfd, argS, (argN < lim)? argN : lim)) < 0)
+				printAndExit("write error on tty: %argS\argN", strerror(errno));
+			if (r < argN) {
 				/*
 				 * We weren't able to write out everything.
 				 * This means the buffer is getting full
 				 * again. Empty it.
 				 */
-				if (n < lim)
+				if (argN < lim)
 					lim = ttyread();
-				n -= r;
-				s += r;
+				argN -= r;
+				argS += r;
 			} else {
 				/* All bytes have been written. */
 				break;
@@ -1103,28 +1114,11 @@ ttywrite(const char *s, size_t n)
 			lim = ttyread();
 	}
 	return;
-
-write_error:
-	printAndExit("write error on tty: %s\n", strerror(errno));
 }
 
-void
-ttysend(char *s, size_t n)
-{
-	int len;
-	xelt_CharCode u;
 
-	ttywrite(s, n);
-	if (IS_SET(XELT_TERMINAL_ECHO))
-		while ((len = utf8decode(s, &u, n)) > 0) {
-			techo(u);
-			n -= len;
-			s += len;
-		}
-}
 
-void
-ttyresize(void)
+void ttyresize(void)
 {
 	struct winsize w;
 
@@ -1807,7 +1801,7 @@ csihandle(void)
 		break;
 	case 'c': /* DA -- Device Attributes */
 		if (csiescseq.arg[0] == 0)
-			ttywrite(vtiden, sizeof(vtiden) - 1);
+			ttywrite1(vtiden, sizeof(vtiden) - 1);
 		break;
 	case 'C': /* CUF -- Cursor <n> Forward */
 	case 'a': /* HPR -- Cursor <n> Forward */
@@ -1935,7 +1929,7 @@ csihandle(void)
 		if (csiescseq.arg[0] == 6) {
 			len = snprintf(buf, sizeof(buf),"\033[%i;%iR",
 					terminal.cursor.y+1, terminal.cursor.x+1);
-			ttywrite(buf, len);
+			ttywrite1(buf, len);
 		}
 		break;
 	case 'r': /* DECSTBM -- Set Scrolling Region */
@@ -2193,21 +2187,22 @@ tputtab(int n)
 	terminal.cursor.x = LIMIT(x, 0, terminal.col-1);
 }
 
-void
-techo(xelt_CharCode u)
-{
-	if (ISCONTROL(u)) { /* control code */
-		if (u & 0x80) {
-			u &= 0x7f;
-			tputc('^');
-			tputc('[');
-		} else if (u != '\n' && u != '\r' && u != '\t') {
-			u ^= 0x40;
-			tputc('^');
-		}
-	}
-	tputc(u);
-}
+// void techo(xelt_CharCode u)
+// {
+	// char *me="techo";
+	// xelt_log(me,"started");
+	// if (ISCONTROL(u)) { /* control code */
+		// if (u & 0x80) {
+			// u &= 0x7f;
+			// tputc('^');
+			// tputc('[');
+		// } else if (u != '\n' && u != '\r' && u != '\t') {
+			// u ^= 0x40;
+			// tputc('^');
+		// }
+	// }
+	// tputc(u);
+// }
 
 void
 tdeftran(char ascii)
@@ -2341,7 +2336,7 @@ tcontrolcode(xelt_uchar ascii)
 	case 0x99:   /* TODO: SGCI */
 		break;
 	case 0x9a:   /* DECID -- Identify Terminal */
-		ttywrite(vtiden, sizeof(vtiden) - 1);
+		ttywrite1(vtiden, sizeof(vtiden) - 1);
 		break;
 	case 0x9b:   /* TODO: CSI */
 	case 0x9c:   /* TODO: ST */
@@ -2410,7 +2405,7 @@ eschandle(xelt_uchar ascii)
 		}
 		break;
 	case 'Z': /* DECID -- Identify Terminal */
-		ttywrite(vtiden, sizeof(vtiden) - 1);
+		ttywrite1(vtiden, sizeof(vtiden) - 1);
 		break;
 	case 'c': /* RIS -- Reset to inital state */
 		treset();
@@ -3616,12 +3611,12 @@ focus(XEvent *ev)
 		xelt_windowmain.state |= XELT_WIN_FOCUSED;
 		xseturgency(0);
 		if (IS_SET(XELT_TERMINAL_FOCUS))
-			ttywrite("\033[I", 3);
+			ttywrite1("\033[I", 3);
 	} else {
 		XUnsetICFocus(xelt_windowmain.inputcontext);
 		xelt_windowmain.state &= ~XELT_WIN_FOCUSED;
 		if (IS_SET(XELT_TERMINAL_FOCUS))
-			ttywrite("\033[O", 3);
+			ttywrite1("\033[O", 3);
 	}
 }
 
@@ -3702,7 +3697,7 @@ kpress(XEvent *ev)
 
 	/* 2. custom keys from config.h */
 	if ((customkey = kmap(ksym, e->state))) {
-		ttysend(customkey, strlen(customkey));
+		ttywrite1(customkey, strlen(customkey));
 		return;
 	}
 
@@ -3721,7 +3716,7 @@ kpress(XEvent *ev)
 			len = 2;
 		}
 	}
-	ttysend(buf, len);
+	ttywrite1(buf, len);
 }
 
 

@@ -119,7 +119,7 @@ static unsigned int defaultitalic = 10;
 static unsigned int defaultunderline = 14;
 
 /* Internal mouse shortcuts. */
-/* Beware that overloading Button1 will disable the selection. */
+/* Beware that overloading XELT_MOUSSE_LEFT will disable the selection. */
 static xelt_MouseShortcut mshortcuts[] = {
     /* button               mask            string */
     { Button4,              XELT_SIZE_XK_ANY_MOD,     "\031" },
