@@ -5,6 +5,7 @@ appname="xelt"
 dirbuild="$PWD/buildout"
 dirbuildexe="$dirbuild/exe"
 dirsrc="$PWD/src"
+fileterminfo="$dirsrc/$appname.terminalinfo"
 #end configs
 
 source "$PWD/build_scripts/_.functions.sh"
@@ -51,7 +52,15 @@ if [ "$1" = "--make" ] || [ "$1" = "make" ]; then
 elif [ "$1" = "--clean" ] || [ "$1" = "clean" ]; then 
     rm -rf $dirbuild
     mkdir -p $dirbuild
+	
+elif [ "$1" = "--reg" ] || [ "$1" = "reg" ]; then 
+    fn_stoponfilenotexist $fileterminfo
+    tic -s $fileterminfo
+	fn_stoponerror "$?" $LINENO
 
+elif [ "$1" = "--unreg" ] || [ "$1" = "unreg" ]; then 
+    rm ~/.terminfo/x/$appname*
+	fn_stoponerror "$?" $LINENO	
 
 elif [ "$1" = "--help" ] || [ "$1" = "help" ]; then 
     fn_usagehelp	

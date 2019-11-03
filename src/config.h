@@ -49,7 +49,7 @@ static unsigned int cursorthickness = 2;
 static int bellvolume = 0;
 
 /* TERM value */
-static char termname[] = "st-256color";
+static char termname[] = "xelt-256color";//available names located at xelt.terminalinfo
 
 static unsigned int tabspaces = 4;
 

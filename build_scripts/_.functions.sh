@@ -75,6 +75,11 @@ Build app and run detached from terminal
 Clean build directory
 
     ./build.sh clean
+	
+Register/unregister terminal
+
+    ./build.sh reg
+	./build.sh unreg
 
 "
 }

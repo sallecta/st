@@ -49,7 +49,11 @@ Try it with tmux:
 
     ./xelt -e tmux
 
+## Register/unregister xelt
 
+    ./build.sh reg
+	./build.sh unreg
+	
 ## Credits
 
 Based on source code of:
