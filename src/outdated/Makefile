@@ -23,7 +23,7 @@ config.h:
 
 ${OBJ}: config.h config.mk
 
-st: ${OBJ}
+xelt: ${OBJ}
 	@echo CC -o $@
 	@${CC} -o $@ ${OBJ} ${LDFLAGS}
 
@@ -31,7 +31,7 @@ clean:
 	@echo cleaning
 	@rm -f st ${OBJ} st-${VERSION}.tar.gz
 
-dist: clean
+dixelt: clean
 	@echo creating dist tarball
 	@mkdir -p st-${VERSION}
 	@cp -R LICENSE Makefile README config.mk config.def.h st.info st.1 arg.h ${SRC} st-${VERSION}

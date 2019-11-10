@@ -5,7 +5,7 @@ This is a fork of [Gediminas Morkevicius](https://github.com/l3pp4rd/st) termina
 
 ## Requirements
 
-In order to build st you need:
+In order to build xelt you need:
 
 - Xlib header files - location of these might differ, edit config.mk
 - xft lib headers.

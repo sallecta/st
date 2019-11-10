@@ -35,6 +35,7 @@
 
 #include "xelt.h"
 
+
 /* Config.h for applying patches and the configuration. */
 
 #include "config.h"
@@ -46,32 +47,23 @@ typedef struct {
 } xelt_DrawingContext;
 
 
-
-
+/* Handle X11 events (xelt_evhandlers.c)*/
 static void (*handler[LASTEvent])(XEvent *) = {
-	[KeyPress] = kpress,
-	[ClientMessage] = cmessage,
-	[ConfigureNotify] = resize,
-	[VisibilityNotify] = visibility,
-	[UnmapNotify] = unmap,
-	[Expose] = expose,
-	[FocusIn] = focus,
-	[FocusOut] = focus,
-	[MotionNotify] = bmotion,
-	[ButtonPress] = ev_btn_press,
-	[ButtonRelease] = ev_btn_release,
-/*
- * Uncomment if you want the selection to disappear when you select something
- * different in another window.
- */
-/*	[SelectionClear] = selclear, */
-	[SelectionNotify] = selnotify,
-/*
- * PropertyNotify is only turned on when there is some INCR transfer happening
- * for the selection retrieval.
- */
-	[PropertyNotify] = propnotify,
-	[SelectionRequest] = selrequest,
+	[ButtonPress] = evhandler_btnpress,
+	[ButtonRelease] = evhandler_btnrelease,
+	[ClientMessage] = evhandler_clientmsg,
+	[ConfigureNotify] = evhandler_configure,
+	[Expose] = evhandler_expose,
+	[FocusIn] = evhandler_focus,
+	[FocusOut] = evhandler_focus,
+	[KeyPress] = evhandler_keypress,
+	[MotionNotify] = evhandler_motion,
+	[UnmapNotify] = evhandler_unmap,
+	[VisibilityNotify] = evhandler_visibility,
+/*	[SelectionClear] = evhandler_selclear, */
+	[SelectionNotify] = evhandler_selnotify,
+	[PropertyNotify] = evhandler_propnotify,
+	[SelectionRequest] = evhandler_selrequest,
 };
 
 /* Globals */
@@ -487,65 +479,7 @@ void mousereport(XEvent *e)
 	ttywrite1(buf, len);
 }
 
-void ev_btn_press(XEvent *e)
-{
-	char *me="ev_btn_press";
 
-	if (e->xbutton.button == XELT_MOUSSE_LEFT) {
-				xelt_log(me,"pressed XELT_MOUSSE_LEFT");
-	}	else if (e->xbutton.button == XELT_MOUSSE_MIDDLE) {
-		xelt_log(me,"pressed XELT_MOUSSE_MIDDLE");
-	}	else if (e->xbutton.button == XELT_MOUSSE_RIGHT) {
-		xelt_log(me,"pressed XELT_MOUSSE_RIGHT");
-	}
-	
-	
-	struct timespec now;
-	xelt_MouseShortcut *ms;
-
-	if (IS_SET(XELT_TERMINAL_MOUSE) && !(e->xbutton.state & forceselmod)) {
-		mousereport(e);
-		return;
-	}
-
-	for (ms = mshortcuts; ms < mshortcuts + LEN(mshortcuts); ms++) {
-		if (e->xbutton.button == ms->b
-				&& match(ms->mask, e->xbutton.state)) {
-			ttywrite1(ms->s, strlen(ms->s));
-			return;
-		}
-	}
-
-	if (e->xbutton.button == XELT_MOUSSE_LEFT) {
-		clock_gettime(CLOCK_MONOTONIC, &now);
-
-		/* Clear previous selection, logically and visually. */
-		selclear(NULL);
-		sel.mode = XELT_SEL_EMPTY;
-		sel.type = XELT_SEL_REGULAR;
-		sel.oe.x = sel.ob.x = x2col(e->xbutton.x);
-		sel.oe.y = sel.ob.y = y2row(e->xbutton.y);
-
-		/*
-		 * If the user clicks below predefined timeouts specific
-		 * snapping behaviour is exposed.
-		 */
-		if (TIMEDIFF(now, sel.tclick2) <= tripleclicktimeout) {
-			sel.snap = XELT_SELSNAP_LINE;
-		} else if (TIMEDIFF(now, sel.tclick1) <= doubleclicktimeout) {
-			sel.snap = XELT_SELSNAP_WORD;
-		} else {
-			sel.snap = 0;
-		}
-		selnormalize();
-
-		if (sel.snap != 0)
-			sel.mode = XELT_SEL_READY;
-		tsetdirt(sel.nb.y, sel.ne.y);
-		sel.tclick2 = sel.tclick1;
-		sel.tclick1 = now;
-	}
-}
 
 char *getsel(void)
 {
@@ -606,108 +540,8 @@ selcopy(Time t)
 	xsetsel(getsel(), t);
 }
 
-void
-propnotify(XEvent *e)
-{
-	XPropertyEvent *xpev;
-	Atom clipboard = XInternAtom(xelt_windowmain.display, "CLIPBOARD", 0);
 
-	xpev = &e->xproperty;
-	if (xpev->state == PropertyNewValue &&
-			(xpev->atom == XA_PRIMARY ||
-			 xpev->atom == clipboard)) {
-		selnotify(e);
-	}
-}
 
-void
-selnotify(XEvent *e)
-{
-	xelt_ulong nitems, ofs, rem;
-	int format;
-	xelt_uchar *data, *last, *repl;
-	Atom type, incratom, property;
-
-	incratom = XInternAtom(xelt_windowmain.display, "INCR", 0);
-
-	ofs = 0;
-	if (e->type == SelectionNotify) {
-		property = e->xselection.property;
-	} else if(e->type == PropertyNotify) {
-		property = e->xproperty.atom;
-	} else {
-		return;
-	}
-	if (property == None)
-		return;
-
-	do {
-		if (XGetWindowProperty(xelt_windowmain.display, xelt_windowmain.id, property, ofs,
-					BUFSIZ/4, False, AnyPropertyType,
-					&type, &format, &nitems, &rem,
-					&data)) {
-			fprintf(stderr, "Clipboard allocation failed\n");
-			return;
-		}
-
-		if (e->type == PropertyNotify && nitems == 0 && rem == 0) {
-			/*
-			 * If there is some PropertyNotify with no data, then
-			 * this is the signal of the selection owner that all
-			 * data has been transferred. We won't need to receive
-			 * PropertyNotify events anymore.
-			 */
-			MODBIT(xelt_windowmain.attrs.event_mask, 0, PropertyChangeMask);
-			XChangeWindowAttributes(xelt_windowmain.display, xelt_windowmain.id, CWEventMask,
-					&xelt_windowmain.attrs);
-		}
-
-		if (type == incratom) {
-			/*
-			 * Activate the PropertyNotify events so we receive
-			 * when the selection owner does send us the next
-			 * chunk of data.
-			 */
-			MODBIT(xelt_windowmain.attrs.event_mask, 1, PropertyChangeMask);
-			XChangeWindowAttributes(xelt_windowmain.display, xelt_windowmain.id, CWEventMask,
-					&xelt_windowmain.attrs);
-
-			/*
-			 * Deleting the property is the transfer start signal.
-			 */
-			XDeleteProperty(xelt_windowmain.display, xelt_windowmain.id, (int)property);
-			continue;
-		}
-
-		/*
-		 * As seen in getsel:
-		 * xelt_Line endings are inconsistent in the terminal and GUI world
-		 * copy and pasting. When receiving some selection data,
-		 * replace all '\n' with '\r'.
-		 * FIXME: Fix the computer world.
-		 */
-		repl = data;
-		last = data + nitems * format / 8;
-		while ((repl = memchr(repl, '\n', last - repl))) {
-			*repl++ = '\r';
-		}
-
-		if (IS_SET(XELT_TERMINAL_BRCKTPASTE) && ofs == 0)
-			ttywrite1("\033[200~", 6);
-		ttywrite1((char *)data, nitems * format / 8);
-		if (IS_SET(XELT_TERMINAL_BRCKTPASTE) && rem == 0)
-			ttywrite1("\033[201~", 6);
-		XFree(data);
-		/* number of 32-bit chunks returned */
-		ofs += nitems * format / 32;
-	} while (rem > 0);
-
-	/*
-	 * Deleting the property again tells the selection owner to send the
-	 * next data chunk in the property.
-	 */
-	XDeleteProperty(xelt_windowmain.display, xelt_windowmain.id, (int)property);
-}
 
 void
 selpaste(const xelt_Arg *dummy)
@@ -741,73 +575,7 @@ clippaste(const xelt_Arg *dummy)
 			xelt_windowmain.id, CurrentTime);
 }
 
-void
-selclear(XEvent *e)
-{
-	if (sel.ob.x == -1)
-		return;
-	sel.mode = XELT_SEL_IDLE;
-	sel.ob.x = -1;
-	tsetdirt(sel.nb.y, sel.ne.y);
-}
 
-void
-selrequest(XEvent *e)
-{
-	XSelectionRequestEvent *xsre;
-	XSelectionEvent xev;
-	Atom xa_targets, string, clipboard;
-	char *seltext;
-
-	xsre = (XSelectionRequestEvent *) e;
-	xev.type = SelectionNotify;
-	xev.requestor = xsre->requestor;
-	xev.selection = xsre->selection;
-	xev.target = xsre->target;
-	xev.time = xsre->time;
-	if (xsre->property == None)
-		xsre->property = xsre->target;
-
-	/* reject */
-	xev.property = None;
-
-	xa_targets = XInternAtom(xelt_windowmain.display, "TARGETS", 0);
-	if (xsre->target == xa_targets) {
-		/* respond with the supported type */
-		string = sel.xtarget;
-		XChangeProperty(xsre->display, xsre->requestor, xsre->property,
-				XA_ATOM, 32, PropModeReplace,
-				(xelt_uchar *) &string, 1);
-		xev.property = xsre->property;
-	} else if (xsre->target == sel.xtarget || xsre->target == XA_STRING) {
-		/*
-		 * xith XA_STRING non ascii characters may be incorrect in the
-		 * requestor. It is not our problem, use utf8.
-		 */
-		clipboard = XInternAtom(xelt_windowmain.display, "CLIPBOARD", 0);
-		if (xsre->selection == XA_PRIMARY) {
-			seltext = sel.primary;
-		} else if (xsre->selection == clipboard) {
-			seltext = sel.clipboard;
-		} else {
-			fprintf(stderr,
-				"Unhandled clipboard selection 0x%lx\n",
-				xsre->selection);
-			return;
-		}
-		if (seltext != NULL) {
-			XChangeProperty(xsre->display, xsre->requestor,
-					xsre->property, xsre->target,
-					8, PropModeReplace,
-					(xelt_uchar *)seltext, strlen(seltext));
-			xev.property = xsre->property;
-		}
-	}
-
-	/* all done, send a notification to the listener */
-	if (!XSendEvent(xsre->display, xsre->requestor, 1, 0, (XEvent *) &xev))
-		fprintf(stderr, "Error sending SelectionNotify event\n");
-}
 
 void
 xsetsel(char *str, Time t)
@@ -817,55 +585,10 @@ xsetsel(char *str, Time t)
 
 	XSetSelectionOwner(xelt_windowmain.display, XA_PRIMARY, xelt_windowmain.id, t);
 	if (XGetSelectionOwner(xelt_windowmain.display, XA_PRIMARY) != xelt_windowmain.id)
-		selclear(0);
+		evhandler_selclear(0);
 }
 
-void
-ev_btn_release(XEvent *e)
-{
-	char *me="ev_btn_release";
-	xelt_log(me,"started");
-	if (IS_SET(XELT_TERMINAL_MOUSE) && !(e->xbutton.state & forceselmod)) {
-		mousereport(e);
-		return;
-	}
 
-	if (e->xbutton.button == XELT_MOUSSE_MIDDLE) {
-		selpaste(NULL);
-	} else if (e->xbutton.button == XELT_MOUSSE_LEFT) {
-		if (sel.mode == XELT_SEL_READY) {
-			getbuttoninfo(e);
-			selcopy(e->xbutton.time);
-		} else
-			selclear(NULL);
-		sel.mode = XELT_SEL_IDLE;
-		tsetdirt(sel.nb.y, sel.ne.y);
-	}
-}
-
-void
-bmotion(XEvent *e)
-{
-	int oldey, oldex, oldsby, oldsey;
-
-	if (IS_SET(XELT_TERMINAL_MOUSE) && !(e->xbutton.state & forceselmod)) {
-		mousereport(e);
-		return;
-	}
-
-	if (!sel.mode)
-		return;
-
-	sel.mode = XELT_SEL_READY;
-	oldey = sel.oe.y;
-	oldex = sel.oe.x;
-	oldsby = sel.nb.y;
-	oldsey = sel.ne.y;
-	getbuttoninfo(e);
-
-	if (oldey != sel.oe.y || oldex != sel.oe.x)
-		tsetdirt(MIN(sel.nb.y, oldsby), MAX(sel.ne.y, oldsey));
-}
 
 void
 printAndExit(const char *errstr, ...)
@@ -1260,7 +983,7 @@ selscroll(int orig, int n)
 
 	if (BETWEEN(sel.ob.y, orig, terminal.bot) || BETWEEN(sel.oe.y, orig, terminal.bot)) {
 		if ((sel.ob.y += n) > terminal.bot || (sel.oe.y += n) < terminal.top) {
-			selclear(NULL);
+			evhandler_selclear(NULL);
 			return;
 		}
 		if (sel.type == XELT_SEL_RECTANGULAR) {
@@ -1406,7 +1129,7 @@ tclearregion(int x1, int y1, int x2, int y2)
 		for (x = x1; x <= x2; x++) {
 			gp = &terminal.line[y][x];
 			if (selected(x, y))
-				selclear(NULL);
+				evhandler_selclear(NULL);
 			gp->fg = terminal.cursor.attr.fg;
 			gp->bg = terminal.cursor.attr.bg;
 			gp->mode = 0;
@@ -1463,131 +1186,14 @@ tdeleteline(int n)
 		tscrollup(terminal.cursor.y, n);
 }
 
-int32_t
-tdefcolor(int *attr, int *npar, int l)
-{
-	int32_t idx = -1;
-	xelt_uint r, g, b;
 
-	switch (attr[*npar + 1]) {
-	case 2: /* direct color in RGB space */
-		if (*npar + 4 >= l) {
-			fprintf(stderr,
-				"erresc(38): Incorrect number of parameters (%d)\n",
-				*npar);
-			break;
-		}
-		r = attr[*npar + 2];
-		g = attr[*npar + 3];
-		b = attr[*npar + 4];
-		*npar += 4;
-		if (!BETWEEN(r, 0, 255) || !BETWEEN(g, 0, 255) || !BETWEEN(b, 0, 255))
-			fprintf(stderr, "erresc: bad rgb color (%u,%u,%u)\n",
-				r, g, b);
-		else
-			idx = TRUECOLOR(r, g, b);
-		break;
-	case 5: /* indexed color */
-		if (*npar + 2 >= l) {
-			fprintf(stderr,
-				"erresc(38): Incorrect number of parameters (%d)\n",
-				*npar);
-			break;
-		}
-		*npar += 2;
-		if (!BETWEEN(attr[*npar], 0, 255))
-			fprintf(stderr, "erresc: bad fgcolor %d\n", attr[*npar]);
-		else
-			idx = attr[*npar];
-		break;
-	case 0: /* implemented defined (only foreground) */
-	case 1: /* transparent */
-	case 3: /* direct color in CMY space */
-	case 4: /* direct color in CMYK space */
-	default:
-		fprintf(stderr,
-		        "erresc(38): gfx attr %d unknown\n", attr[*npar]);
-		break;
-	}
 
-	return idx;
-}
-
-void
-tsetattr(int *attr, int l)
+void tsetcolorattr(int *attr, int l)
 {
 	int i;
-	int32_t idx;
 
 	for (i = 0; i < l; i++) {
-		switch (attr[i]) {
-		case 0:
-			terminal.cursor.attr.mode &= ~(
-				XELT_ATTR_BOLD       |
-				XELT_ATTR_FAINT      |
-				XELT_ATTR_ITALIC     |
-				XELT_ATTR_UNDERLINE  |
-				XELT_ATTR_REVERSE    |
-				XELT_ATTR_INVISIBLE  |
-				XELT_ATTR_STRUCK     );
-			terminal.cursor.attr.fg = defaultfg;
-			terminal.cursor.attr.bg = defaultbg;
-			break;
-		case 1:
-			terminal.cursor.attr.mode |= XELT_ATTR_BOLD;
-			break;
-		case 2:
-			terminal.cursor.attr.mode |= XELT_ATTR_FAINT;
-			break;
-		case 3:
-			terminal.cursor.attr.mode |= XELT_ATTR_ITALIC;
-			break;
-		case 4:
-			terminal.cursor.attr.mode |= XELT_ATTR_UNDERLINE;
-			break;
-		case 7:
-			terminal.cursor.attr.mode |= XELT_ATTR_REVERSE;
-			break;
-		case 8:
-			terminal.cursor.attr.mode |= XELT_ATTR_INVISIBLE;
-			break;
-		case 9:
-			terminal.cursor.attr.mode |= XELT_ATTR_STRUCK;
-			break;
-		case 22:
-			terminal.cursor.attr.mode &= ~(XELT_ATTR_BOLD | XELT_ATTR_FAINT);
-			break;
-		case 23:
-			terminal.cursor.attr.mode &= ~XELT_ATTR_ITALIC;
-			break;
-		case 24:
-			terminal.cursor.attr.mode &= ~XELT_ATTR_UNDERLINE;
-			break;
-		case 27:
-			terminal.cursor.attr.mode &= ~XELT_ATTR_REVERSE;
-			break;
-		case 28:
-			terminal.cursor.attr.mode &= ~XELT_ATTR_INVISIBLE;
-			break;
-		case 29:
-			terminal.cursor.attr.mode &= ~XELT_ATTR_STRUCK;
-			break;
-		case 38:
-			if ((idx = tdefcolor(attr, &i, l)) >= 0)
-				terminal.cursor.attr.fg = idx;
-			break;
-		case 39:
-			terminal.cursor.attr.fg = defaultfg;
-			break;
-		case 48:
-			if ((idx = tdefcolor(attr, &i, l)) >= 0)
-				terminal.cursor.attr.bg = idx;
-			break;
-		case 49:
-			terminal.cursor.attr.bg = defaultbg;
-			break;
-		default:
-			if (BETWEEN(attr[i], 30, 37)) {
+		if (BETWEEN(attr[i], 30, 37)) {
 				terminal.cursor.attr.fg = attr[i] - 30;
 			} else if (BETWEEN(attr[i], 40, 47)) {
 				terminal.cursor.attr.bg = attr[i] - 40;
@@ -1600,8 +1206,6 @@ tsetattr(int *attr, int l)
 					"erresc(default): gfx attr %d unknown\n",
 					attr[i]), csidump();
 			}
-			break;
-		}
 	}
 }
 
@@ -1679,7 +1283,7 @@ tsetmode(int priv, int set, int *args, int narg)
 				MODBIT(terminal.mode, 0, XELT_TERMINAL_MOUSE);
 				MODBIT(terminal.mode, set, XELT_TERMINAL_MOUSEMANY);
 				break;
-			case 1004: /* 1004: send focus events to tty */
+			case 1004: /* 1004: send evhandler_focus events to tty */
 				MODBIT(terminal.mode, set, XELT_TERMINAL_FOCUS);
 				break;
 			case 1006: /* 1006: extended reporting mode */
@@ -1848,7 +1452,7 @@ csihandle(void)
 		tputtab(csiescseq.arg[0]);
 		break;
 	case 'J': /* ED -- Clear screen */
-		selclear(NULL);
+		evhandler_selclear(NULL);
 		switch (csiescseq.arg[0]) {
 		case 0: /* below */
 			tclearregion(terminal.cursor.x, terminal.cursor.y, terminal.col-1, terminal.cursor.y);
@@ -1922,8 +1526,8 @@ csihandle(void)
 	case 'h': /* SM -- Set terminal mode */
 		tsetmode(csiescseq.priv, 1, csiescseq.arg, csiescseq.narg);
 		break;
-	case 'm': /* SGR -- Terminal attribute (color) */
-		tsetattr(csiescseq.arg, csiescseq.narg);
+	case 'm': /* SGR -- Terminal colors (Select Graphic Rendition)  */
+		tsetcolorattr(csiescseq.arg, csiescseq.narg);
 		break;
 	case 'n': /* DSR – Device Status Report (cursor position) */
 		if (csiescseq.arg[0] == 6) {
@@ -2253,26 +1857,25 @@ tstrsequence(xelt_uchar c)
 	terminal.esc |= XELT_ESC_STR;
 }
 
-void
-tcontrolcode(xelt_uchar ascii)
+void tcontrolcode(xelt_uchar ascii)
 {
 	switch (ascii) {
-	case '\t':   /* HT */
+	case XELT_CTRLCODE_TAB:  
 		tputtab(1);
 		return;
-	case '\b':   /* BS */
+	case XELT_CTRLCODE_BACKSPACE:  
 		tmoveto(terminal.cursor.x-1, terminal.cursor.y);
 		return;
-	case '\r':   /* CR */
+	case XELT_CTRLCODE_CARRIAGERETURN: 
 		tmoveto(0, terminal.cursor.y);
 		return;
-	case '\f':   /* LF */
-	case '\v':   /* VT */
-	case '\n':   /* LF */
+	case XELT_CTRLCODE_FORMFEED:  
+	case XELT_CTRLCODE_VERTICALTAB:
+	case XELT_CTRLCODE_LINEFEED:
 		/* go to first col if the mode is set */
 		tnewline(IS_SET(XELT_TERMINAL_CRLF));
 		return;
-	case '\a':   /* BEL */
+	case XELT_CTRLCODE_BELL:
 		if (terminal.esc & XELT_ESC_STR_END) {
 			/* backwards compatibility to xterm */
 			strhandle();
@@ -2283,84 +1886,50 @@ tcontrolcode(xelt_uchar ascii)
 				XkbBell(xelt_windowmain.display, xelt_windowmain.id, bellvolume, (Atom)NULL);
 		}
 		break;
-	case '\033': /* ESC */
+	case XELT_CTRLCODE_ESC:
 		csireset();
 		terminal.esc &= ~(XELT_ESC_CSI|XELT_ESC_ALTCHARSET|XELT_ESC_TEST);
 		terminal.esc |= XELT_ESC_START;
 		return;
-	case '\016': /* SO (LS1 -- Locking shift 1) */
-	case '\017': /* SI (LS0 -- Locking shift 0) */
-		terminal.charset = 1 - (ascii - '\016');
+	case XELT_CTRLCODE_SHIFTOUT:
+	case XELT_CTRLCODE_SHIFTIN:
+		terminal.charset = 1 - (ascii - XELT_CTRLCODE_SHIFTOUT);
 		return;
-	case '\032': /* SUB */
+	case XELT_CTRLCODE_SUBSTITUTECHAR:
 		tsetchar('?', &terminal.cursor.attr, terminal.cursor.x, terminal.cursor.y);
-	case '\030': /* CAN */
+	case XELT_CTRLCODE_CANCEL:
 		csireset();
 		break;
-	case '\005': /* ENQ (IGNORED) */
-	case '\000': /* NUL (IGNORED) */
-	case '\021': /* XON (IGNORED) */
-	case '\023': /* XOFF (IGNORED) */
-	case 0177:   /* DEL (IGNORED) */
-		return;
-	case 0x80:   /* TODO: PAD */
-	case 0x81:   /* TODO: HOP */
-	case 0x82:   /* TODO: BPH */
-	case 0x83:   /* TODO: NBH */
-	case 0x84:   /* TODO: IND */
-		break;
-	case 0x85:   /* NEL -- Next line */
+	case XELT_CTRLCODE_DELETE:  
+		return;/* DEL (IGNORED) */
+	case XELT_CTRLCODE_NEXTLINE:
 		tnewline(1); /* always go to first col */
 		break;
-	case 0x86:   /* TODO: SSA */
-	case 0x87:   /* TODO: ESA */
-		break;
-	case 0x88:   /* HTS -- Horizontal tab stop */
+	case XELT_CTRLCODE_HORIZONTALTABSTOP:
 		terminal.tabs[terminal.cursor.x] = 1;
 		break;
-	case 0x89:   /* TODO: HTJ */
-	case 0x8a:   /* TODO: VTS */
-	case 0x8b:   /* TODO: PLD */
-	case 0x8c:   /* TODO: PLU */
-	case 0x8d:   /* TODO: RI */
-	case 0x8e:   /* TODO: SS2 */
-	case 0x8f:   /* TODO: SS3 */
-	case 0x91:   /* TODO: PU1 */
-	case 0x92:   /* TODO: PU2 */
-	case 0x93:   /* TODO: STS */
-	case 0x94:   /* TODO: CCH */
-	case 0x95:   /* TODO: MW */
-	case 0x96:   /* TODO: SPA */
-	case 0x97:   /* TODO: EPA */
-	case 0x98:   /* TODO: SOS */
-	case 0x99:   /* TODO: SGCI */
-		break;
-	case 0x9a:   /* DECID -- Identify Terminal */
+	case XELT_CTRLCODE_TERMINALID:
 		ttywrite1(vtiden, sizeof(vtiden) - 1);
 		break;
-	case 0x9b:   /* TODO: CSI */
-	case 0x9c:   /* TODO: ST */
-		break;
-	case 0x90:   /* DCS -- Device Control String */
-	case 0x9d:   /* OSC -- Operating System Command */
-	case 0x9e:   /* PM -- Privacy Message */
-	case 0x9f:   /* APC -- Application Program Command */
+	case XELT_CTRLCODE_DEVICECONTROLSTRING:
+	case XELT_CTRLCODE_OPERATINGSYSTEMCOMMAND:
+	case XELT_CTRLCODE_PRIVACYMESSAGE:
+	case XELT_CTRLCODE_APPLICATIONPROGRAMCOMMAND:
 		tstrsequence(ascii);
 		return;
 	}
 	/* only CAN, SUB, \a and C1 chars interrupt a sequence */
-	terminal.esc &= ~(XELT_ESC_STR_END|XELT_ESC_STR);
+	terminal.esc &= ~(XELT_ESC_STR_END|XELT_ESC_STR); // birdlang
 }
 
 /*
  * returns 1 when the sequence is finished and it hasn't to read
  * more characters for this sequence, otherwise 0
  */
-int
-eschandle(xelt_uchar ascii)
+int eschandle(xelt_uchar ascii)
 {
 	switch (ascii) {
-	case '[':
+	case '[': /* CSI - Control Sequence Introducer */
 		terminal.esc |= XELT_ESC_CSI;
 		return 0;
 	case '#':
@@ -2526,7 +2095,7 @@ tputc(xelt_CharCode u)
 		return;
 	}
 	if (sel.ob.x != -1 && BETWEEN(terminal.cursor.y, sel.ob.y, sel.oe.y))
-		selclear(NULL);
+		evhandler_selclear(NULL);
 
 	gp = &terminal.line[terminal.cursor.y][terminal.cursor.x];
 	if (IS_SET(XELT_TERMINAL_WRAP) && (terminal.cursor.state & XELT_CURSOR_WRAPNEXT)) {
@@ -2593,16 +2162,16 @@ tresize(int col, int row)
 		free(terminal.alt[i]);
 	}
 
-	/* resize to new width */
+	/* evhandler_configure to new width */
 	terminal.specbuf = xrealloc(terminal.specbuf, col * sizeof(XftGlyphFontSpec));
 
-	/* resize to new height */
+	/* evhandler_configure to new height */
 	terminal.line = xrealloc(terminal.line, row * sizeof(xelt_Line));
 	terminal.alt  = xrealloc(terminal.alt,  row * sizeof(xelt_Line));
 	terminal.dirty = xrealloc(terminal.dirty, row * sizeof(*terminal.dirty));
 	terminal.tabs = xrealloc(terminal.tabs, col * sizeof(*terminal.tabs));
 
-	/* resize each row to new width, zero-pad if needed */
+	/* evhandler_configure each row to new width, zero-pad if needed */
 	for (i = 0; i < minrow; i++) {
 		terminal.line[i] = xrealloc(terminal.line[i], col * sizeof(xelt_Glyph));
 		terminal.alt[i]  = xrealloc(terminal.alt[i],  col * sizeof(xelt_Glyph));
@@ -2842,7 +2411,7 @@ xloadfonts(char *fontstr, double fontsize)
 	}
 
 	if (!pattern)
-		printAndExit("st: can't open font %s\n", fontstr);
+		printAndExit("xelt: can't open font %s\n", fontstr);
 
 	if (fontsize > 1) {
 		FcPatternDel(pattern, FC_PIXEL_SIZE);
@@ -2868,7 +2437,7 @@ xloadfonts(char *fontstr, double fontsize)
 	}
 
 	if (xloadfont(&dc.font, pattern))
-		printAndExit("st: can't open font %s\n", fontstr);
+		printAndExit("xelt: can't open font %s\n", fontstr);
 
 	if (usedfontsize < 0) {
 		FcPatternGetDouble(dc.font.match->pattern,
@@ -2885,17 +2454,17 @@ xloadfonts(char *fontstr, double fontsize)
 	FcPatternDel(pattern, FC_SLANT);
 	FcPatternAddInteger(pattern, FC_SLANT, FC_SLANT_ITALIC);
 	if (xloadfont(&dc.ifont, pattern))
-		printAndExit("st: can't open font %s\n", fontstr);
+		printAndExit("xelt: can't open font %s\n", fontstr);
 
 	FcPatternDel(pattern, FC_WEIGHT);
 	FcPatternAddInteger(pattern, FC_WEIGHT, FC_WEIGHT_BOLD);
 	if (xloadfont(&dc.ibfont, pattern))
-		printAndExit("st: can't open font %s\n", fontstr);
+		printAndExit("xelt: can't open font %s\n", fontstr);
 
 	FcPatternDel(pattern, FC_SLANT);
 	FcPatternAddInteger(pattern, FC_SLANT, FC_SLANT_ROMAN);
 	if (xloadfont(&dc.bfont, pattern))
-		printAndExit("st: can't open font %s\n", fontstr);
+		printAndExit("xelt: can't open font %s\n", fontstr);
 
 	FcPatternDestroy(pattern);
 }
@@ -3561,25 +3130,6 @@ drawregion(int x1, int y1, int x2, int y2)
 	xdrawcursor();
 }
 
-void
-expose(XEvent *ev)
-{
-	redraw();
-}
-
-void
-visibility(XEvent *ev)
-{
-	XVisibilityEvent *e = &ev->xvisibility;
-
-	MODBIT(xelt_windowmain.state, e->state != VisibilityFullyObscured, XELT_WIN_VISIBLE);
-}
-
-void
-unmap(XEvent *ev)
-{
-	xelt_windowmain.state &= ~XELT_WIN_VISIBLE;
-}
 
 void
 xsetpointermotion(int set)
@@ -3598,27 +3148,7 @@ xseturgency(int add)
 	XFree(h);
 }
 
-void
-focus(XEvent *ev)
-{
-	XFocusChangeEvent *e = &ev->xfocus;
 
-	if (e->mode == NotifyGrab)
-		return;
-
-	if (ev->type == FocusIn) {
-		XSetICFocus(xelt_windowmain.inputcontext);
-		xelt_windowmain.state |= XELT_WIN_FOCUSED;
-		xseturgency(0);
-		if (IS_SET(XELT_TERMINAL_FOCUS))
-			ttywrite1("\033[I", 3);
-	} else {
-		XUnsetICFocus(xelt_windowmain.inputcontext);
-		xelt_windowmain.state &= ~XELT_WIN_FOCUSED;
-		if (IS_SET(XELT_TERMINAL_FOCUS))
-			ttywrite1("\033[O", 3);
-	}
-}
 
 int
 match(xelt_uint mask, xelt_uint state)
@@ -3672,74 +3202,9 @@ kmap(KeySym k, xelt_uint state)
 	return NULL;
 }
 
-void
-kpress(XEvent *ev)
-{
-	XKeyEvent *e = &ev->xkey;
-	KeySym ksym;
-	char buf[32], *customkey;
-	int len;
-	xelt_CharCode c;
-	Status status;
-	xelt_Shortcut *bp;
-
-	if (IS_SET(XELT_TERMINAL_KBDLOCK))
-		return;
-
-	len = XmbLookupString(xelt_windowmain.inputcontext, e, buf, sizeof buf, &ksym, &status);
-	/* 1. shortcuts */
-	for (bp = shortcuts; bp < shortcuts + LEN(shortcuts); bp++) {
-		if (ksym == bp->keysym && match(bp->mod, e->state)) {
-			bp->func(&(bp->arg));
-			return;
-		}
-	}
-
-	/* 2. custom keys from config.h */
-	if ((customkey = kmap(ksym, e->state))) {
-		ttywrite1(customkey, strlen(customkey));
-		return;
-	}
-
-	/* 3. composed string from input method */
-	if (len == 0)
-		return;
-	if (len == 1 && e->state & Mod1Mask) {
-		if (IS_SET(XELT_TERMINAL_8BIT)) {
-			if (*buf < 0177) {
-				c = *buf | 0x80;
-				len = utf8encode(c, buf);
-			}
-		} else {
-			buf[1] = buf[0];
-			buf[0] = '\033';
-			len = 2;
-		}
-	}
-	ttywrite1(buf, len);
-}
 
 
-void
-cmessage(XEvent *e)
-{
-	/*
-	 * See xembed specs
-	 *  http://standards.freedesktop.org/xembed-spec/xembed-spec-latest.html
-	 */
-	if (e->xclient.message_type == xelt_windowmain.xembed && e->xclient.format == 32) {
-		if (e->xclient.data.l[1] == XELT_XEMBED_FOCUS_IN) {
-			xelt_windowmain.state |= XELT_WIN_FOCUSED;
-			xseturgency(0);
-		} else if (e->xclient.data.l[1] == XELT_XEMBED_FOCUS_OUT) {
-			xelt_windowmain.state &= ~XELT_WIN_FOCUSED;
-		}
-	} else if (e->xclient.data.l[0] == xelt_windowmain.wmdeletewin) {
-		/* Send SIGHUP to shell */
-		kill(pid, SIGHUP);
-		exit(0);
-	}
-}
+
 
 void
 cresize(int width, int height)
@@ -3791,15 +3256,9 @@ togglefullscreen(const xelt_Arg *arg)
 
 }
 
-void
-resize(XEvent *e)
-{
-	if (e->xconfigure.width == xelt_windowmain.width && e->xconfigure.height == xelt_windowmain.height)
-		return;
 
-	cresize(e->xconfigure.width, e->xconfigure.height);
-	ttyresize();
-}
+
+
 
 void
 run(void)
@@ -3905,3 +3364,4 @@ main(int argc, char *argv[])
 	return 0;
 }
 
+#include "xelt_evhandlers.c"

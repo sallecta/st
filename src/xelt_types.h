@@ -32,7 +32,7 @@ typedef struct {
 	int charheight; /* char height */
 	int charwidth; /* char width  */
 	int depth; /* bit depth */
-	char state; /* focus, redraw, visible */
+	char state; /* evhandler_focus, redraw, visible */
 	int cursorstyle; 
 } xelt_Window;
 
